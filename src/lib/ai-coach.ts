@@ -1,13 +1,14 @@
 import { getLatestAssessmentResultForCurrentUser } from "@/lib/assessment-data";
+import {
+  generateCoachInsight,
+  getMissingAiConfigMessage,
+  type AiProviderName,
+} from "@/lib/ai/provider";
 import { getCurrentUser } from "@/lib/auth";
 import { buildEngagementSummary, engagementMetricSelect, mapEngagementMetricRow } from "@/lib/engagement";
 import { getLatestGlp1SummaryForCurrentUser } from "@/lib/glp1-data";
 import { getLatestInBodySummaryForCurrentUser } from "@/lib/inbody-data";
 import { getTodayFoodLogsForCurrentUser } from "@/lib/nutrition-data";
-import {
-  missingOpenAiConfigMessage,
-  requireOpenAIClientForProduction,
-} from "@/lib/openai";
 import {
   dateOnly,
   getTodayTasksForCurrentUser,
@@ -26,7 +27,6 @@ import type {
 } from "@/lib/types";
 import type { CoachInsightGenerateRequestInput } from "@/lib/validation";
 import { coachInsightOutputSchema } from "@/lib/validation";
-import { buildCoachPromptInput, coachPrompt } from "@/prompts/coach";
 
 export const aiCoachInsightSelect =
   "id,user_id,insight_date,persona,summary,priority_tasks,nutrition_advice,exercise_advice,medication_advice,follow_up_advice,risk_flags,ai_raw_response,created_at";
@@ -66,38 +66,6 @@ type CoachSource = {
   glp1: Glp1LatestSummary;
   engagement7d: EngagementSummary;
   recentWorkouts7d: TrainingLog[];
-};
-
-const coachInsightJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "summary",
-    "priorityTasks",
-    "nutritionAdvice",
-    "exerciseAdvice",
-    "medicationAdvice",
-    "followUpAdvice",
-    "riskFlags",
-  ],
-  properties: {
-    summary: { type: "string" },
-    priorityTasks: {
-      type: "array",
-      minItems: 1,
-      maxItems: 5,
-      items: { type: "string" },
-    },
-    nutritionAdvice: { type: "string" },
-    exerciseAdvice: { type: "string" },
-    medicationAdvice: { type: "string" },
-    followUpAdvice: { type: "string" },
-    riskFlags: {
-      type: "array",
-      maxItems: 10,
-      items: { type: "string" },
-    },
-  },
 };
 
 const personaFallbacks: Record<
@@ -209,6 +177,21 @@ export function mapAiCoachInsightRow(row: AiCoachInsightRow): AiCoachInsight {
 
 function defaultPersona(source: CoachSource): AssessmentPersona {
   return source.assessment?.persona || "fitness_beginner";
+}
+
+function isAiProviderName(value: unknown): value is AiProviderName {
+  return (
+    value === "openai" ||
+    value === "anthropic" ||
+    value === "gemini" ||
+    value === "deepseek"
+  );
+}
+
+function aiProviderFromRaw(rawResponse: Record<string, unknown>) {
+  return isAiProviderName(rawResponse.provider)
+    ? rawResponse.provider
+    : "fallback";
 }
 
 function sourceRiskFlags(source: CoachSource) {
@@ -406,40 +389,25 @@ async function buildCurrentCoachSource(): Promise<CoachSource> {
 
 async function createAiInsight(
   source: CoachSource,
-): Promise<{ insight: AiCoachInsight; provider: "openai" | "fallback" }> {
-  const client = requireOpenAIClientForProduction();
+): Promise<{ insight: AiCoachInsight; provider: AiProviderName | "fallback" }> {
   const fallback = buildFallbackInsight(source);
-
-  if (!client) {
-    return { insight: fallback, provider: "fallback" };
-  }
 
   try {
     const persona = defaultPersona(source);
-    const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5.5",
-      instructions: [
-        coachPrompt.systemPrompt,
-        coachPrompt.developerPrompt,
-      ].join("\n"),
-      input: buildCoachPromptInput({ persona, source }),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "chengxin_ai_coach_insight",
-          strict: true,
-          schema: coachInsightJsonSchema,
-        },
-      },
-      store: false,
+    const aiResult = await generateCoachInsight({
+      persona,
+      source,
     });
 
-    const parsedJson = JSON.parse(response.output_text);
-    const parsed = coachInsightOutputSchema.parse(parsedJson);
+    if (!aiResult) {
+      return { insight: fallback, provider: "fallback" };
+    }
+
+    const parsed = coachInsightOutputSchema.parse(aiResult.data);
     const safeOutput = enforceCoachSafety(parsed, persona);
 
     return {
-      provider: "openai",
+      provider: aiResult.provider,
       insight: {
         ...fallback,
         persona,
@@ -451,11 +419,8 @@ async function createAiInsight(
         followUpAdvice: safeOutput.followUpAdvice,
         riskFlags: Array.from(new Set([...sourceRiskFlags(source), ...safeOutput.riskFlags])),
         aiRawResponse: {
-          provider: "openai",
-          responseId: response.id,
-          model: response.model,
-          promptType: "coach",
-          promptVersion: coachPrompt.version,
+          ...aiResult.raw,
+          provider: aiResult.provider,
         },
       },
     };
@@ -468,7 +433,7 @@ async function createAiInsight(
       provider: "fallback",
       insight: buildFallbackInsight(source, "demo-user", {
         provider: "fallback",
-        reason: "openai_failed_or_invalid_output",
+        reason: "ai_gateway_failed_or_invalid_output",
         message: error instanceof Error ? error.message : "unknown_error",
       }),
     };
@@ -523,8 +488,7 @@ export async function getTodayCoachInsightForCurrentUser(): Promise<AiCoachInsig
     const insight = mapAiCoachInsightRow(data);
     return {
       persisted: true,
-      provider:
-        insight.aiRawResponse.provider === "openai" ? "openai" : "fallback",
+      provider: aiProviderFromRaw(insight.aiRawResponse),
       insight,
     };
   }
@@ -551,7 +515,7 @@ export async function generateCoachInsightForCurrentUser(
     } catch (error) {
       return {
         error: "SERVER_ERROR",
-        details: error instanceof Error ? error.message : missingOpenAiConfigMessage,
+        details: error instanceof Error ? error.message : getMissingAiConfigMessage(),
       };
     }
 
@@ -575,7 +539,7 @@ export async function generateCoachInsightForCurrentUser(
   } catch (error) {
     return {
       error: "SERVER_ERROR",
-      details: error instanceof Error ? error.message : missingOpenAiConfigMessage,
+      details: error instanceof Error ? error.message : getMissingAiConfigMessage(),
     };
   }
 

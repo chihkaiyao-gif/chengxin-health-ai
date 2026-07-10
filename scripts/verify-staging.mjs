@@ -102,6 +102,10 @@ async function checkHealth() {
   const requiredKeys = [
     "demoMode",
     "supabaseConfigured",
+    "supabasePublishableKeyConfigured",
+    "supabaseSecretKeyConfigured",
+    "aiProvider",
+    "aiConfigured",
     "openaiConfigured",
   ];
   for (const key of requiredKeys) {
@@ -125,8 +129,16 @@ async function checkHealth() {
     if (payload.supabaseConfigured !== true) {
       blockers.push("Supabase is not configured");
     }
-    if (payload.openaiConfigured !== true) {
-      blockers.push("OpenAI is not configured");
+    if (payload.supabasePublishableKeyConfigured !== true) {
+      blockers.push("Supabase publishable key is not configured");
+    }
+    if (payload.supabaseSecretKeyConfigured !== true) {
+      blockers.push("Supabase secret key is not configured");
+    }
+    if (payload.aiConfigured !== true) {
+      blockers.push(
+        `${payload.aiProvider || "AI provider"} is not configured`,
+      );
     }
     if (storageConfigured !== true) {
       blockers.push("storage buckets are not configured");

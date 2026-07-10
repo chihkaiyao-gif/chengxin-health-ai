@@ -413,7 +413,7 @@ export type AiCoachInsight = {
 
 export type AiCoachInsightResponse = {
   persisted: boolean;
-  provider: "openai" | "fallback";
+  provider: "openai" | "anthropic" | "gemini" | "deepseek" | "fallback";
   insight: AiCoachInsight;
 };
 

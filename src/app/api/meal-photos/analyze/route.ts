@@ -1,6 +1,6 @@
-import { zodTextFormat } from "openai/helpers/zod";
 import { apiError, ok } from "@/lib/api-response";
-import { buildAiInputHash, getAiCache, setAiCache } from "@/lib/ai-cache";
+import { analyzeFood, getMissingAiConfigMessage } from "@/lib/ai/provider";
+import { buildAiInputHash } from "@/lib/ai-cache";
 import { logAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -9,20 +9,13 @@ import {
   nutritionSafetyNote,
 } from "@/lib/nutrition";
 import {
-  missingOpenAiConfigMessage,
-  requireOpenAIClientForProduction,
-} from "@/lib/openai";
-import {
   getStorageBucketSettings,
   hasSupabaseConfig,
   isDemoMode,
 } from "@/lib/supabase/server";
 import { assertClinicUsageLimit, incrementUsageCounter } from "@/lib/usage";
-import {
-  mealPhotoAnalyzeSchema,
-  nutritionEstimateSchema,
-} from "@/lib/validation";
-import { buildFoodPromptInput, foodPrompt } from "@/prompts/food";
+import { mealPhotoAnalyzeSchema } from "@/lib/validation";
+import { foodPrompt } from "@/prompts/food";
 
 export const runtime = "nodejs";
 
@@ -44,91 +37,6 @@ function safeStorageFileName(file: File) {
     .slice(0, 60);
 
   return `${Date.now()}-${baseName || "meal-photo"}.${extension}`;
-}
-
-async function analyzeMealPhotoWithOpenAI(
-  dataUrl: string,
-  context: { mealType: string; eatenAt: string; note?: string },
-  cacheInput: unknown,
-) {
-  const cachedEstimate = await getAiCache({
-    promptType: "food",
-    promptVersion: foodPrompt.version,
-    input: cacheInput,
-  });
-
-  if (cachedEstimate) {
-    return {
-      provider: "ai_cache" as const,
-      estimate: nutritionEstimateSchema.parse(cachedEstimate),
-      raw: {
-        provider: "ai_cache",
-        promptType: "food",
-        promptVersion: foodPrompt.version,
-      },
-    };
-  }
-
-  const client = requireOpenAIClientForProduction();
-
-  if (!client) {
-    return null;
-  }
-
-  const response = await client.responses.parse({
-    model: process.env.OPENAI_MODEL || "gpt-5.5",
-    instructions: [
-      foodPrompt.systemPrompt,
-      foodPrompt.developerPrompt,
-    ].join("\n"),
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: buildFoodPromptInput(context),
-          },
-          {
-            type: "input_image",
-            image_url: dataUrl,
-            detail: "auto",
-          },
-        ],
-      },
-    ],
-    text: {
-      format: zodTextFormat(
-        nutritionEstimateSchema,
-        "food_photo_nutrition_estimate",
-      ),
-    },
-    store: false,
-  });
-
-  const estimate = response.output_parsed
-    ? nutritionEstimateSchema.parse(response.output_parsed)
-    : nutritionEstimateSchema.parse(JSON.parse(response.output_text));
-
-  await setAiCache({
-    promptType: "food",
-    promptVersion: foodPrompt.version,
-    input: cacheInput,
-    output: estimate,
-  });
-
-  return {
-    provider: "openai" as const,
-    estimate,
-    raw: {
-      provider: "openai",
-      id: response.id,
-      model: response.model,
-      promptType: "food",
-      promptVersion: foodPrompt.version,
-      outputText: response.output_text,
-    },
-  };
 }
 
 export async function POST(request: Request) {
@@ -201,23 +109,27 @@ export async function POST(request: Request) {
     eatenAt: parsed.data.eatenAt,
     note: parsed.data.note || "",
   };
-  let openAiResult: Awaited<ReturnType<typeof analyzeMealPhotoWithOpenAI>> = null;
+  let aiResult: Awaited<ReturnType<typeof analyzeFood>> = null;
 
   try {
-    openAiResult = await analyzeMealPhotoWithOpenAI(dataUrl, parsed.data, cacheInput);
+    aiResult = await analyzeFood({
+      imageDataUrl: dataUrl,
+      context: parsed.data,
+      cacheInput,
+    });
   } catch (error) {
     if (!isDemoMode()) {
       return apiError(
         "SERVER_ERROR",
-        error instanceof Error ? error.message : missingOpenAiConfigMessage,
+        error instanceof Error ? error.message : getMissingAiConfigMessage(),
         500,
       );
     }
   }
 
   const estimate =
-    openAiResult?.estimate || createFallbackNutritionEstimate(photo.name);
-  const aiRawResponse = openAiResult?.raw || {
+    aiResult?.data || createFallbackNutritionEstimate(photo.name);
+  const aiRawResponse = aiResult?.raw || {
     fallback: true,
     reason: "demo_mode_without_openai_key",
     promptType: "food",
@@ -233,7 +145,7 @@ export async function POST(request: Request) {
       analysis: estimate,
       safetyNotice: nutritionSafetyNote,
       medicalNutritionSafetyNotice: medicalNutritionSafetyNote,
-      aiProvider: openAiResult?.provider || "demo_fallback",
+      aiProvider: aiResult?.provider || "demo_fallback",
     });
   }
 
@@ -294,7 +206,7 @@ export async function POST(request: Request) {
       metadata: {
         mealType: parsed.data.mealType,
         eatenAt: parsed.data.eatenAt,
-        aiProvider: openAiResult?.provider || "demo_fallback",
+        aiProvider: aiResult?.provider || "demo_fallback",
         confidenceScore: estimate.confidenceScore,
       },
     },
@@ -308,6 +220,6 @@ export async function POST(request: Request) {
     analysis: estimate,
     safetyNotice: nutritionSafetyNote,
     medicalNutritionSafetyNotice: medicalNutritionSafetyNote,
-    aiProvider: openAiResult?.provider || "demo_fallback",
+    aiProvider: aiResult?.provider || "demo_fallback",
   });
 }

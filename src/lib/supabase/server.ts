@@ -1,14 +1,42 @@
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 
 const missingSupabaseConfigMessage =
-  "Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, or set NEXT_PUBLIC_DEMO_MODE=true for local demo fallback.";
+  "Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, or set NEXT_PUBLIC_DEMO_MODE=true for local demo fallback.";
 
 const defaultStorageBuckets = {
   mealPhotos: "meal-photos",
   inbodyScans: "inbody-scans",
 } as const;
+
+type AiProviderName = "openai" | "anthropic" | "gemini" | "deepseek";
+
+const aiProviderKeyEnvByName: Record<AiProviderName, string> = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  gemini: "GOOGLE_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+};
+
+function getAiProviderNameForEnv(): AiProviderName {
+  const provider = process.env.AI_PROVIDER?.toLowerCase();
+
+  if (
+    provider === "openai" ||
+    provider === "anthropic" ||
+    provider === "gemini" ||
+    provider === "deepseek"
+  ) {
+    return provider;
+  }
+
+  return "openai";
+}
+
+function getAiProviderKeyEnvForEnv(provider = getAiProviderNameForEnv()) {
+  return aiProviderKeyEnvByName[provider];
+}
 
 export function isDemoMode() {
   return process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -17,7 +45,7 @@ export function isDemoMode() {
 export function hasActualSupabaseConfig() {
   return Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   );
 }
 
@@ -37,6 +65,10 @@ export function shouldUseDemoFallback() {
 
 export function hasOpenAiConfig() {
   return Boolean(process.env.OPENAI_API_KEY);
+}
+
+export function hasAiProviderConfig() {
+  return Boolean(process.env[getAiProviderKeyEnvForEnv()]);
 }
 
 export function getStorageBucketSettings() {
@@ -78,6 +110,9 @@ export function getCommitSha() {
 export function getEnvironmentStatus() {
   const demoMode = isDemoMode();
   const supabaseConfigured = hasActualSupabaseConfig();
+  const aiProvider = getAiProviderNameForEnv();
+  const aiProviderKeyEnv = getAiProviderKeyEnvForEnv(aiProvider);
+  const aiConfigured = hasAiProviderConfig();
   const openaiConfigured = hasOpenAiConfig();
   const storageConfigured = hasStorageConfig();
   const storageBucketsConfigured = demoMode
@@ -90,11 +125,11 @@ export function getEnvironmentStatus() {
     !demoMode && !process.env.NEXT_PUBLIC_SUPABASE_URL
       ? "NEXT_PUBLIC_SUPABASE_URL"
       : null,
-    !demoMode && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      ? "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    !demoMode && !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      ? "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
       : null,
-    !demoMode && !process.env.SUPABASE_SERVICE_ROLE_KEY
-      ? "SUPABASE_SERVICE_ROLE_KEY"
+    !demoMode && !process.env.SUPABASE_SECRET_KEY
+      ? "SUPABASE_SECRET_KEY"
       : null,
     !demoMode && !process.env.SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET
       ? "SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET"
@@ -102,7 +137,7 @@ export function getEnvironmentStatus() {
     !demoMode && !process.env.SUPABASE_STORAGE_INBODY_SCANS_BUCKET
       ? "SUPABASE_STORAGE_INBODY_SCANS_BUCKET"
       : null,
-    !demoMode && !process.env.OPENAI_API_KEY ? "OPENAI_API_KEY" : null,
+    !demoMode && !aiConfigured ? aiProviderKeyEnv : null,
   ].filter(Boolean) as string[];
 
   return {
@@ -114,7 +149,17 @@ export function getEnvironmentStatus() {
       "development",
     demoMode,
     supabaseConfigured,
+    supabasePublishableKeyConfigured: Boolean(
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    ),
+    supabaseSecretKeyConfigured: Boolean(process.env.SUPABASE_SECRET_KEY),
+    aiProvider,
+    aiProviderKeyEnv,
+    aiConfigured,
     openaiConfigured,
+    anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    googleConfigured: Boolean(process.env.GOOGLE_API_KEY),
+    deepseekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
     storageConfigured,
     storageBucketsConfigured,
     storageBuckets: getStorageBucketSettings(),
@@ -135,7 +180,7 @@ export function createClient() {
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         get(name: string) {
@@ -152,14 +197,14 @@ export function createClient() {
   );
 }
 
-export function createServiceRoleClient() {
-  if (!hasActualSupabaseConfig() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+export function createSecretKeyClient() {
+  if (!hasActualSupabaseConfig() || !process.env.SUPABASE_SECRET_KEY) {
     return null;
   }
 
-  return createSupabaseServiceClient(
+  return createSupabaseAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_SECRET_KEY,
     {
       auth: {
         persistSession: false,

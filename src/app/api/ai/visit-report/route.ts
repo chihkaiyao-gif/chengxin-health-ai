@@ -1,4 +1,9 @@
 import { apiError, ok } from "@/lib/api-response";
+import {
+  generateVisitReport,
+  getMissingAiConfigMessage,
+  type AiProviderName,
+} from "@/lib/ai/provider";
 import { logAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -8,93 +13,11 @@ import {
   getClinicPatientDetail,
   getReportPeriod,
 } from "@/lib/clinic-patient";
-import {
-  missingOpenAiConfigMessage,
-  requireOpenAIClientForProduction,
-} from "@/lib/openai";
 import { hasSupabaseConfig, isDemoMode } from "@/lib/supabase/server";
 import { assertClinicUsageLimit, incrementUsageCounter } from "@/lib/usage";
-import type { VisitReportSummary } from "@/lib/types";
-import {
-  visitReportRequestSchema,
-  visitReportSummarySchema,
-} from "@/lib/validation";
-import {
-  buildVisitReportPromptInput,
-  visitReportPrompt,
-} from "@/prompts/visit-report";
+import { visitReportRequestSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
-
-const visitReportJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "weightChange30d",
-    "skeletalMuscleChange",
-    "bodyFatPercentageChange",
-    "proteinTargetStatus",
-    "exerciseExecutionRate",
-    "glp1Adherence",
-    "sideEffectSummary",
-    "physicianAttentionItems",
-    "visitCommunicationPoints",
-    "safetyNotice",
-  ],
-  properties: {
-    weightChange30d: { type: "string" },
-    skeletalMuscleChange: { type: "string" },
-    bodyFatPercentageChange: { type: "string" },
-    proteinTargetStatus: { type: "string" },
-    exerciseExecutionRate: { type: "string" },
-    glp1Adherence: { type: "string" },
-    sideEffectSummary: { type: "string" },
-    physicianAttentionItems: {
-      type: "array",
-      maxItems: 8,
-      items: { type: "string" },
-    },
-    visitCommunicationPoints: {
-      type: "array",
-      maxItems: 8,
-      items: { type: "string" },
-    },
-    safetyNotice: { type: "string" },
-  },
-};
-
-async function createAiVisitReport(
-  source: unknown,
-): Promise<{ summary: VisitReportSummary; provider: "openai" | "fallback" }> {
-  const client = requireOpenAIClientForProduction();
-
-  if (!client) {
-    throw new Error(missingOpenAiConfigMessage);
-  }
-
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5.5",
-    instructions: [
-      visitReportPrompt.systemPrompt,
-      visitReportPrompt.developerPrompt,
-    ].join("\n"),
-    input: buildVisitReportPromptInput(source),
-    text: {
-      format: {
-        type: "json_schema",
-        name: "chengxin_clinic_visit_report",
-        strict: true,
-        schema: visitReportJsonSchema,
-      },
-    },
-    store: false,
-  });
-
-  const parsedJson = JSON.parse(response.output_text);
-  const parsed = visitReportSummarySchema.parse(parsedJson);
-
-  return { summary: parsed, provider: "openai" };
-}
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -127,18 +50,23 @@ export async function POST(request: Request) {
     );
   }
 
-  let aiProvider: "openai" | "fallback" = "fallback";
+  let aiProvider: AiProviderName | "fallback" = "fallback";
   let summary = createFallbackVisitReport(detail);
 
   try {
-    const aiResult = await createAiVisitReport(buildVisitReportSource(detail));
-    summary = aiResult.summary;
-    aiProvider = aiResult.provider;
+    const aiResult = await generateVisitReport({
+      source: buildVisitReportSource(detail),
+    });
+
+    if (aiResult) {
+      summary = aiResult.data;
+      aiProvider = aiResult.provider;
+    }
   } catch (error) {
     if (!isDemoMode()) {
       return apiError(
         "SERVER_ERROR",
-        error instanceof Error ? error.message : missingOpenAiConfigMessage,
+        error instanceof Error ? error.message : getMissingAiConfigMessage(),
         500,
       );
     }
@@ -175,7 +103,7 @@ export async function POST(request: Request) {
         },
         safetyNotice: summary.safetyNotice,
       },
-      { status: aiProvider === "openai" ? 201 : 202 },
+      { status: aiProvider !== "fallback" ? 201 : 202 },
     );
   }
 

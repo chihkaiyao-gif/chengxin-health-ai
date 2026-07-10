@@ -34,7 +34,13 @@ type AnalyzeResponse = {
   analysis: NutritionEstimate;
   safetyNotice: string;
   medicalNutritionSafetyNotice: string;
-  aiProvider: "openai" | "ai_cache" | "demo_fallback";
+  aiProvider:
+    | "openai"
+    | "anthropic"
+    | "gemini"
+    | "deepseek"
+    | "ai_cache"
+    | "demo_fallback";
 };
 
 type TodayResponse = {

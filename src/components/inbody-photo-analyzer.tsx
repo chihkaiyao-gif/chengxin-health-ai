@@ -31,7 +31,13 @@ type AnalyzeResponse = {
   imagePath: string | null;
   analysis: InBodyEstimate;
   safetyNotice: string;
-  aiProvider: "openai" | "ai_cache" | "demo_fallback";
+  aiProvider:
+    | "openai"
+    | "anthropic"
+    | "gemini"
+    | "deepseek"
+    | "ai_cache"
+    | "demo_fallback";
 };
 
 type SaveResponse = {

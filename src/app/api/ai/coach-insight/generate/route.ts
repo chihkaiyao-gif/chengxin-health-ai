@@ -35,5 +35,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return ok(result, { status: result.provider === "openai" ? 201 : 202 });
+  return ok(result, { status: result.provider !== "fallback" ? 201 : 202 });
 }

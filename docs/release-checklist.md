@@ -30,10 +30,11 @@ Use this checklist before staging demos and every production release.
 - [ ] Demo staff account can open appointments and reminders.
 - [ ] Demo patients cover fitness beginner, gym training, GLP-1, chronic disease, and senior frailty personas.
 
-## AI And Providers
+## AI Gateway And Providers
 
-- [ ] `OPENAI_API_KEY` is configured for staging and production.
-- [ ] OpenAI model is explicitly set.
+- [ ] `AI_PROVIDER` is configured for staging and production.
+- [ ] Active provider API key is configured; currently implemented provider is `openai` with `OPENAI_API_KEY`.
+- [ ] OpenAI model is explicitly set when `AI_PROVIDER=openai`.
 - [ ] AI nutrition photo route shows failure state when analysis fails.
 - [ ] AI InBody photo route shows failure state when reading fails.
 - [ ] Visit report output does not diagnose and does not adjust medication.

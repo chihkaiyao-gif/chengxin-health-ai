@@ -1,4 +1,4 @@
-# Supabase Staging Setup
+﻿# Supabase Staging Setup
 
 本文件說明 Chengxin Health AI 在 Supabase staging project 的資料庫、seed、storage 與 RLS 設定流程。
 
@@ -134,7 +134,7 @@ order by tablename, policyname;
 - 病人只能上傳自己的餐點與 InBody 圖片。
 - 病人只能讀取自己的圖片。
 - 診所人員讀取圖片時，必須透過 `clinic_patients` 關聯授權。
-- service role 可由 server-side API 進行必要的存取。
+- secret key 可由 server-side API 進行必要的存取。
 - 不允許匿名公開讀取健康照片。
 
 ## 7. 確認 RLS
@@ -199,6 +199,8 @@ https://staging.chengxin.health/api/health
 {
   "demoMode": false,
   "supabaseConfigured": true,
+  "aiProvider": "openai",
+  "aiConfigured": true,
   "openaiConfigured": true,
   "storageBucketsConfigured": true,
   "requiredEnvMissing": [],

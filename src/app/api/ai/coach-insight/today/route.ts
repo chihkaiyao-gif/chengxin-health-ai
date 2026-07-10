@@ -1,7 +1,10 @@
 import { apiError, ok } from "@/lib/api-response";
+import {
+  getMissingAiConfigMessage,
+  hasAiProviderConfig,
+} from "@/lib/ai/provider";
 import { getCurrentUser } from "@/lib/auth";
 import { getTodayCoachInsightForCurrentUser } from "@/lib/ai-coach";
-import { hasOpenAIClient, missingOpenAiConfigMessage } from "@/lib/openai";
 import { hasSupabaseConfig, isDemoMode } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +23,8 @@ export async function GET() {
 
   const result = await getTodayCoachInsightForCurrentUser();
 
-  if (!isDemoMode() && !hasOpenAIClient() && !result.persisted) {
-    return apiError("SERVER_ERROR", missingOpenAiConfigMessage, 500);
+  if (!isDemoMode() && !hasAiProviderConfig() && !result.persisted) {
+    return apiError("SERVER_ERROR", getMissingAiConfigMessage(), 500);
   }
 
   return ok(result);

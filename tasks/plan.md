@@ -1,4 +1,4 @@
-# Implementation Plan: Chengxin Health AI MVP Skeleton
+﻿# Implementation Plan: Chengxin Health AI MVP Skeleton
 
 ## Overview
 
@@ -44,7 +44,7 @@ Create a working Next.js 14 SaaS skeleton with patient flows, clinic flows, Supa
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Health data exposure | High | RLS on every table, private Storage buckets, no service role in browser |
+| Health data exposure | High | RLS on every table, private Storage buckets, no secret key in browser |
 | Medication safety | High | Explicit safety copy, no auto dosage logic |
 | AI overreach | High | Server-only AI routes, non-diagnostic prompt, `store: false` |
 | OCR inaccuracies | Medium | Require human review for InBody OCR fields |

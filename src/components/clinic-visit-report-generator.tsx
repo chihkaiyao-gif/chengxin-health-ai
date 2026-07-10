@@ -9,7 +9,7 @@ type ApiFailure = { error: { message: string } };
 
 type VisitReportResponse = {
   persisted: boolean;
-  aiProvider: "openai" | "fallback";
+  aiProvider: "openai" | "anthropic" | "gemini" | "deepseek" | "fallback";
   report: ClinicVisitReport;
   safetyNotice: string;
 };
@@ -56,7 +56,9 @@ export function ClinicVisitReportGenerator({
       setStatusMessage(
         result.aiProvider === "openai"
           ? "AI 回診摘要已產生並儲存。"
-          : "已產生 demo 摘要；設定 OPENAI_API_KEY 後會使用正式 AI 生成。",
+          : result.aiProvider === "fallback"
+            ? "已產生 demo 摘要；設定 AI_PROVIDER 與對應 API key 後會使用正式 AI 生成。"
+            : "AI 回診摘要已透過目前 AI Provider 產生並儲存。",
       );
     } catch (error) {
       setErrorMessage(

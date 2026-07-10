@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createServiceRoleClient, isDemoMode } from "@/lib/supabase/server";
+import { createSecretKeyClient, isDemoMode } from "@/lib/supabase/server";
 
 type AiCachePromptType = "food" | "inbody" | "coach" | "visit_report" | "assessment" | string;
 
@@ -51,7 +51,7 @@ export async function getAiCache<T>({
     return null;
   }
 
-  const supabase = createServiceRoleClient();
+  const supabase = createSecretKeyClient();
 
   if (!supabase) {
     return null;
@@ -84,7 +84,7 @@ export async function setAiCache({
     return { persisted: false };
   }
 
-  const supabase = createServiceRoleClient();
+  const supabase = createSecretKeyClient();
 
   if (!supabase) {
     return { persisted: false };

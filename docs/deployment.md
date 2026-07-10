@@ -1,4 +1,4 @@
-# Chengxin Health AI Deployment Guide
+﻿# Chengxin Health AI Deployment Guide
 
 This guide prepares the app for Vercel + Supabase staging, then production.
 
@@ -24,15 +24,15 @@ STAGING_BASE_URL=https://your-staging-domain.vercel.app npm run verify-staging
 指向非 localhost 時，`verify-staging` 會自動啟用嚴格檢查，要求：
 
 - `NEXT_PUBLIC_DEMO_MODE=false`
-- Supabase URL / anon key / service role key 完整
-- OpenAI API key 完整
+- Supabase URL / publishable key / secret key 完整
+- `AI_PROVIDER` 與對應 provider API key 完整
 - Storage bucket 設定完整
 - `/api/health` 回傳 `status:"ok"`
 
 ### 1. 建立 Supabase Staging Project
 
 1. 在 Supabase 建立 staging project。
-2. 記下 Project URL、anon key、service role key。
+2. 記下 Project URL、publishable key、secret key。
 3. 本機安裝並登入 Supabase CLI。
 4. 連結 staging project：
 
@@ -122,12 +122,16 @@ NEXT_PUBLIC_APP_ENV=staging
 NEXT_PUBLIC_APP_URL=https://your-staging-domain.vercel.app
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-staging-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-staging-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-staging-service-role-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-staging-publishable-key
+SUPABASE_SECRET_KEY=sb_secret_your-staging-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-5.5
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+DEEPSEEK_API_KEY=
 ```
 
 選用 env：
@@ -166,7 +170,11 @@ https://your-staging-domain.vercel.app/api/health
 
 - `demoMode:false`
 - `supabaseConfigured:true`
-- `openaiConfigured:true`
+- `supabasePublishableKeyConfigured:true`
+- `supabaseSecretKeyConfigured:true`
+- `aiProvider:"openai"` or another supported provider
+- `aiConfigured:true`
+- `openaiConfigured:true` when `AI_PROVIDER=openai`
 - `storageBucketsConfigured:true`
 - `requiredEnvMissing:[]`
 - `status:"ok"`
@@ -196,8 +204,12 @@ NEXT_PUBLIC_DEMO_MODE=true
 Optional:
 
 ```env
+AI_PROVIDER=openai
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5.5
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+DEEPSEEK_API_KEY=
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 ```
@@ -220,12 +232,16 @@ NEXT_PUBLIC_APP_ENV=staging
 NEXT_PUBLIC_APP_URL=https://staging.chengxin.health
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-staging-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-staging-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-staging-service-role-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-staging-publishable-key
+SUPABASE_SECRET_KEY=sb_secret_your-staging-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-5.5
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+DEEPSEEK_API_KEY=
 ```
 
 Optional:
@@ -260,12 +276,16 @@ NEXT_PUBLIC_APP_ENV=production
 NEXT_PUBLIC_APP_URL=https://app.chengxin.health
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-production-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-production-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-production-service-role-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-production-publishable-key
+SUPABASE_SECRET_KEY=sb_secret_your-production-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-5.5
+ANTHROPIC_API_KEY=
+GOOGLE_API_KEY=
+DEEPSEEK_API_KEY=
 ```
 
 Recommended:
@@ -301,6 +321,10 @@ Use `/api/health` to verify the active mode:
     "status": "ok",
     "demoMode": false,
     "supabaseConfigured": true,
+    "supabasePublishableKeyConfigured": true,
+    "supabaseSecretKeyConfigured": true,
+    "aiProvider": "openai",
+    "aiConfigured": true,
     "openaiConfigured": true,
     "storageBucketsConfigured": true,
     "requiredEnvMissing": [],
@@ -315,7 +339,7 @@ Use `/api/health` to verify the active mode:
 ### 1. Create Project
 
 1. Create a new Supabase project for staging.
-2. Save the project URL, anon key, and service role key.
+2. Save the project URL, publishable key, and secret key.
 3. Add those values to Vercel staging environment variables.
 
 ### 2. Run Schema And Migrations
@@ -405,7 +429,7 @@ Add the staging variables from this document in Vercel:
 - Environment Variables
 - Select Preview and Production values separately
 
-Do not expose `SUPABASE_SERVICE_ROLE_KEY` to client code.
+Do not expose `SUPABASE_SECRET_KEY` to client code.
 
 ### 3. Build Settings
 
@@ -467,7 +491,11 @@ Fields:
 
 - `status`: `ok` or `misconfigured`
 - `demoMode`: whether demo fallback is enabled
-- `supabaseConfigured`: URL and anon key present
+- `supabaseConfigured`: URL and publishable key present
+- `supabasePublishableKeyConfigured`: publishable key present
+- `supabaseSecretKeyConfigured`: secret key present
+- `aiProvider`: active AI Gateway provider, defaulting to `openai`
+- `aiConfigured`: active provider key is present
 - `openaiConfigured`: `OPENAI_API_KEY` present
 - `storageBucketsConfigured`: required storage bucket names available
 - `storageBuckets`: effective bucket names

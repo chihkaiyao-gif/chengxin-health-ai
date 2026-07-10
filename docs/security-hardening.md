@@ -1,4 +1,4 @@
-# Chengxin Health AI Security Hardening
+﻿# Chengxin Health AI Security Hardening
 
 ## RLS 檢查清單
 
@@ -52,8 +52,8 @@
 
 ## Production Env Checklist
 
-- `NEXT_PUBLIC_SUPABASE_URL` 與 `NEXT_PUBLIC_SUPABASE_ANON_KEY` 設定於部署平台。
-- `OPENAI_API_KEY` 僅在 server env，不暴露到 client。
+- `NEXT_PUBLIC_SUPABASE_URL` 與 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 設定於部署平台。
+- `AI_PROVIDER` 與對應 provider key 僅在 server env，不暴露到 client；目前正式實作為 `OPENAI_API_KEY`。
 - 設定 Supabase Auth redirect allowlist。
 - 設定正式網域 HTTPS。
 - 啟用 database backup 與 point-in-time recovery。

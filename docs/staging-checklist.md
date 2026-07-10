@@ -1,4 +1,4 @@
-# Chengxin Health AI Staging Checklist
+﻿# Chengxin Health AI Staging Checklist
 
 此清單用於把 Chengxin Health AI 部署到 Vercel + Supabase staging，供診所內部人員與少量測試病人使用。Staging 不應使用正式病人資料，除非已完成授權、同意與資料保護檢查。
 
@@ -7,8 +7,8 @@
 - [ ] 建立獨立 Supabase staging project，不與 production 共用資料庫。
 - [ ] 確認 project region、名稱與團隊權限。
 - [ ] 複製 staging 專用 `NEXT_PUBLIC_SUPABASE_URL`。
-- [ ] 複製 staging 專用 `NEXT_PUBLIC_SUPABASE_ANON_KEY`。
-- [ ] 建立 staging 專用 `SUPABASE_SERVICE_ROLE_KEY`，只放在 Vercel server env。
+- [ ] 複製 staging 專用 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`。
+- [ ] 建立 staging 專用 `SUPABASE_SECRET_KEY`，只放在 Vercel server env。
 
 ## 2. Database Migrations
 
@@ -42,7 +42,7 @@
 - [ ] 診所人員只能讀取所屬診所關聯病人的資料。
 - [ ] owner / doctor 可查看 audit logs。
 - [ ] viewer 只能唯讀，不可更新診所設定或病人資料。
-- [ ] service role 只用於 server-side job、AI cache、seed 或管理流程。
+- [ ] secret key 只用於 server-side job、AI cache、seed 或管理流程。
 
 ## 6. Supabase Auth
 
@@ -60,17 +60,22 @@
 - [ ] `NEXT_PUBLIC_APP_VERSION=0.1.0`
 - [ ] `NEXT_PUBLIC_DEMO_MODE=false`
 - [ ] `NEXT_PUBLIC_SUPABASE_URL=...`
-- [ ] `NEXT_PUBLIC_SUPABASE_ANON_KEY=...`
-- [ ] `SUPABASE_SERVICE_ROLE_KEY=...`
+- [ ] `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...`
+- [ ] `SUPABASE_SECRET_KEY=...`
 - [ ] `SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos`
 - [ ] `SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans`
+- [ ] `AI_PROVIDER=openai`
 - [ ] `OPENAI_API_KEY=...`
 - [ ] `OPENAI_MODEL=gpt-5.5`
+- [ ] `ANTHROPIC_API_KEY=`（skeleton，除非切換 provider）
+- [ ] `GOOGLE_API_KEY=`（skeleton，除非切換 provider）
+- [ ] `DEEPSEEK_API_KEY=`（skeleton，除非切換 provider）
 - [ ] Optional：LINE / Email / SMS provider keys 保持未啟用或使用 sandbox。
 
-## 8. OpenAI 與 AI Safety
+## 8. AI Gateway 與 AI Safety
 
-- [ ] 設定 staging 專用 `OPENAI_API_KEY`。
+- [ ] 設定 staging 專用 `AI_PROVIDER=openai`。
+- [ ] 設定 `AI_PROVIDER` 對應 API key；目前正式實作為 `OPENAI_API_KEY`。
 - [ ] 確認 food / inbody / coach / visit report route 皆引用 `src/prompts`。
 - [ ] 測試缺 API key 時，AI route 會回清楚錯誤，不使用 demo fallback。
 - [ ] 確認 AI 回覆使用繁體中文。
@@ -81,6 +86,7 @@
 - [ ] 部署後執行：`SMOKE_BASE_URL=https://staging.chengxin.health npm run smoke`
 - [ ] 確認 `/api/health` 回 200。
 - [ ] 確認 `/api/health` 的 `demoMode=false`。
+- [ ] 確認 `/api/health` 的 `aiConfigured=true`。
 - [ ] 確認 `requiredEnvMissing=[]`。
 - [ ] 確認 `/privacy`、`/terms`、`/medical-disclaimer`、`/support` 回 200。
 

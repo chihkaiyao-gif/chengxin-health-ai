@@ -1,6 +1,6 @@
-import { zodTextFormat } from "openai/helpers/zod";
 import { apiError, ok } from "@/lib/api-response";
-import { buildAiInputHash, getAiCache, setAiCache } from "@/lib/ai-cache";
+import { analyzeInBody, getMissingAiConfigMessage } from "@/lib/ai/provider";
+import { buildAiInputHash } from "@/lib/ai-cache";
 import { logAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -8,20 +8,13 @@ import {
   inbodySafetyNote,
 } from "@/lib/inbody";
 import {
-  missingOpenAiConfigMessage,
-  requireOpenAIClientForProduction,
-} from "@/lib/openai";
-import {
   getStorageBucketSettings,
   hasSupabaseConfig,
   isDemoMode,
 } from "@/lib/supabase/server";
 import { assertClinicUsageLimit, incrementUsageCounter } from "@/lib/usage";
-import {
-  inbodyEstimateSchema,
-  inbodyPhotoAnalyzeSchema,
-} from "@/lib/validation";
-import { buildInBodyPromptInput, inbodyPrompt } from "@/prompts/inbody";
+import { inbodyPhotoAnalyzeSchema } from "@/lib/validation";
+import { inbodyPrompt } from "@/prompts/inbody";
 
 export const runtime = "nodejs";
 
@@ -43,88 +36,6 @@ function safeStorageFileName(file: File) {
     .slice(0, 60);
 
   return `${Date.now()}-${baseName || "inbody-scan"}.${extension}`;
-}
-
-async function analyzeInBodyWithOpenAI(
-  dataUrl: string,
-  context: { measuredAt: string; note?: string },
-  cacheInput: unknown,
-) {
-  const cachedEstimate = await getAiCache({
-    promptType: "inbody",
-    promptVersion: inbodyPrompt.version,
-    input: cacheInput,
-  });
-
-  if (cachedEstimate) {
-    return {
-      provider: "ai_cache" as const,
-      estimate: inbodyEstimateSchema.parse(cachedEstimate),
-      raw: {
-        provider: "ai_cache",
-        promptType: "inbody",
-        promptVersion: inbodyPrompt.version,
-      },
-    };
-  }
-
-  const client = requireOpenAIClientForProduction();
-
-  if (!client) {
-    return null;
-  }
-
-  const response = await client.responses.parse({
-    model: process.env.OPENAI_MODEL || "gpt-5.5",
-    instructions: [
-      inbodyPrompt.systemPrompt,
-      inbodyPrompt.developerPrompt,
-    ].join("\n"),
-    input: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: buildInBodyPromptInput(context),
-          },
-          {
-            type: "input_image",
-            image_url: dataUrl,
-            detail: "auto",
-          },
-        ],
-      },
-    ],
-    text: {
-      format: zodTextFormat(inbodyEstimateSchema, "inbody_report_reading"),
-    },
-    store: false,
-  });
-
-  const estimate = response.output_parsed
-    ? inbodyEstimateSchema.parse(response.output_parsed)
-    : inbodyEstimateSchema.parse(JSON.parse(response.output_text));
-
-  await setAiCache({
-    promptType: "inbody",
-    promptVersion: inbodyPrompt.version,
-    input: cacheInput,
-    output: estimate,
-  });
-
-  return {
-    provider: "openai" as const,
-    estimate,
-    raw: {
-      provider: "openai",
-      id: response.id,
-      model: response.model,
-      promptType: "inbody",
-      promptVersion: inbodyPrompt.version,
-      outputText: response.output_text,
-    },
-  };
 }
 
 export async function POST(request: Request) {
@@ -196,25 +107,29 @@ export async function POST(request: Request) {
     measuredAt: parsed.data.measuredAt,
     note: parsed.data.note || "",
   };
-  let openAiResult: Awaited<ReturnType<typeof analyzeInBodyWithOpenAI>> = null;
+  let aiResult: Awaited<ReturnType<typeof analyzeInBody>> = null;
 
   try {
-    openAiResult = await analyzeInBodyWithOpenAI(dataUrl, parsed.data, cacheInput);
+    aiResult = await analyzeInBody({
+      imageDataUrl: dataUrl,
+      context: parsed.data,
+      cacheInput,
+    });
   } catch (error) {
     if (!isDemoMode()) {
       return apiError(
         "SERVER_ERROR",
-        error instanceof Error ? error.message : missingOpenAiConfigMessage,
+        error instanceof Error ? error.message : getMissingAiConfigMessage(),
         500,
       );
     }
   }
 
-  const estimate = openAiResult?.estimate || {
+  const estimate = aiResult?.data || {
     ...createFallbackInBodyEstimate(photo.name),
     measuredAt: parsed.data.measuredAt,
   };
-  const aiRawResponse = openAiResult?.raw || {
+  const aiRawResponse = aiResult?.raw || {
     fallback: true,
     reason: "demo_mode_without_openai_key",
     promptType: "inbody",
@@ -229,7 +144,7 @@ export async function POST(request: Request) {
       imagePath: null,
       analysis: estimate,
       safetyNotice: inbodySafetyNote,
-      aiProvider: openAiResult?.provider || "demo_fallback",
+      aiProvider: aiResult?.provider || "demo_fallback",
     });
   }
 
@@ -289,7 +204,7 @@ export async function POST(request: Request) {
       resourceId: analysisRow.id,
       metadata: {
         measuredAt: parsed.data.measuredAt,
-        aiProvider: openAiResult?.provider || "demo_fallback",
+        aiProvider: aiResult?.provider || "demo_fallback",
         confidenceScore: estimate.confidenceScore,
       },
     },
@@ -302,6 +217,6 @@ export async function POST(request: Request) {
     imagePath,
     analysis: estimate,
     safetyNotice: inbodySafetyNote,
-    aiProvider: openAiResult?.provider || "demo_fallback",
+    aiProvider: aiResult?.provider || "demo_fallback",
   });
 }

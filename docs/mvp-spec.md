@@ -1,4 +1,4 @@
-# Spec: Chengxin Health AI MVP
+﻿# Spec: Chengxin Health AI MVP
 
 ## Objective
 
@@ -62,7 +62,7 @@ export function SectionCard({ title, children }: SectionCardProps) {
 
 - Always: validate external input, enforce auth, use RLS, show medical safety notices, keep AI output non-diagnostic.
 - Ask first: adding billing, adding diagnosis-like logic, changing medication workflows, adding new sensitive data categories.
-- Never: commit secrets, bypass RLS, expose service role keys to the browser, recommend medication dose changes.
+- Never: commit secrets, bypass RLS, expose secret keys to the browser, recommend medication dose changes.
 
 ## Success Criteria
 

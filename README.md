@@ -1,4 +1,4 @@
-# Chengxin Health AI
+﻿# Chengxin Health AI
 
 Commercializable AI health management SaaS MVP skeleton for clinics, weight-loss patients, fitness users, chronic disease tracking, and older adults.
 
@@ -36,7 +36,7 @@ npm run build
 1. Copy `.env.example` to `.env.local`.
 2. Create a Supabase project.
 3. Apply database migrations with `supabase db push`.
-4. Add Supabase URL and anon key to `.env.local`.
+4. Add Supabase URL and publishable key to `.env.local`.
 5. Add `OPENAI_API_KEY` only when you are ready to test AI routes.
 6. Start the app with `npm run dev`.
 
