@@ -66,7 +66,12 @@
 - [ ] `SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans`
 - [ ] `AI_PROVIDER=openai`
 - [ ] `OPENAI_API_KEY=...`
-- [ ] `OPENAI_MODEL=gpt-5.5`
+- [ ] `OPENAI_MODEL=gpt-5.6-terra`
+- [ ] `OPENAI_FALLBACK_MODEL=gpt-5.5`
+- [ ] `OPENAI_REASONING_EFFORT_FOOD=low`
+- [ ] `OPENAI_REASONING_EFFORT_INBODY=low`
+- [ ] `OPENAI_REASONING_EFFORT_COACH=medium`
+- [ ] `OPENAI_REASONING_EFFORT_VISIT_REPORT=medium`
 - [ ] `ANTHROPIC_API_KEY=`（skeleton，除非切換 provider）
 - [ ] `GOOGLE_API_KEY=`（skeleton，除非切換 provider）
 - [ ] `DEEPSEEK_API_KEY=`（skeleton，除非切換 provider）
@@ -76,8 +81,14 @@
 
 - [ ] 設定 staging 專用 `AI_PROVIDER=openai`。
 - [ ] 設定 `AI_PROVIDER` 對應 API key；目前正式實作為 `OPENAI_API_KEY`。
+- [ ] 設定 `OPENAI_MODEL`；建議 staging 使用 `gpt-5.6-terra`。
+- [ ] 設定 `OPENAI_FALLBACK_MODEL=gpt-5.5`，只用於可重試的模型可用性、429、5xx 或網路錯誤。
+- [ ] 確認 `gpt-5.6` 是 `gpt-5.6-sol` 的 alias；若要控成本，優先明確指定 `gpt-5.6-terra` 或 `gpt-5.6-luna`。
+- [ ] 確認 OpenAI API 帳務與 ChatGPT / Codex 訂閱彼此獨立，staging 使用的是 API billing。
+- [ ] 確認 GPT-5.6 API 價格：Sol / alias input US$5、output US$30；Terra input US$2.50、output US$15；Luna input US$1、output US$6，皆為每 1M tokens。
 - [ ] 確認 food / inbody / coach / visit report route 皆引用 `src/prompts`。
 - [ ] 測試缺 API key 時，AI route 會回清楚錯誤，不使用 demo fallback。
+- [ ] 測試缺 `OPENAI_MODEL` 時，staging / production mode 會明確失敗。
 - [ ] 確認 AI 回覆使用繁體中文。
 - [ ] 確認所有藥物相關內容包含「請由醫師評估」。
 
@@ -87,6 +98,8 @@
 - [ ] 確認 `/api/health` 回 200。
 - [ ] 確認 `/api/health` 的 `demoMode=false`。
 - [ ] 確認 `/api/health` 的 `aiConfigured=true`。
+- [ ] 確認 `/api/health` 的 `openaiProviderConfigured=true`。
+- [ ] 確認 `/api/health` 的 `openaiModelConfigured=true`。
 - [ ] 確認 `requiredEnvMissing=[]`。
 - [ ] 確認 `/privacy`、`/terms`、`/medical-disclaimer`、`/support` 回 200。
 

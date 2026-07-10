@@ -5,6 +5,7 @@ Use this checklist before staging demos and every production release.
 ## Code Gates
 
 - [ ] `npm run lint` passes.
+- [ ] `npm test` passes.
 - [ ] `npm run build` passes.
 - [ ] `npm run smoke` passes against the target deployment URL.
 - [ ] `/api/health` returns 200.
@@ -34,7 +35,12 @@ Use this checklist before staging demos and every production release.
 
 - [ ] `AI_PROVIDER` is configured for staging and production.
 - [ ] Active provider API key is configured; currently implemented provider is `openai` with `OPENAI_API_KEY`.
-- [ ] OpenAI model is explicitly set when `AI_PROVIDER=openai`.
+- [ ] `OPENAI_MODEL` is explicitly set when `AI_PROVIDER=openai`; recommended staging value is `gpt-5.6-terra`.
+- [ ] `OPENAI_FALLBACK_MODEL` is configured to the previous stable model and is only used for retryable model availability, rate limit, 5xx, or network failures.
+- [ ] `/api/health` reports OpenAI model configuration as booleans and does not expose exact model names or API keys.
+- [ ] Team understands `gpt-5.6` is an alias for `gpt-5.6-sol`; use explicit Terra or Luna model IDs when optimizing cost.
+- [ ] GPT-5.6 API pricing has been reviewed: Sol / alias input US$5 and output US$30, Terra input US$2.50 and output US$15, Luna input US$1 and output US$6 per 1M tokens.
+- [ ] ChatGPT / Codex subscription billing is not assumed to cover OpenAI API usage; API billing is checked separately.
 - [ ] AI nutrition photo route shows failure state when analysis fails.
 - [ ] AI InBody photo route shows failure state when reading fails.
 - [ ] Visit report output does not diagnose and does not adjust medication.

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+import { getOpenAiEnvStatus } from "@/lib/ai/openai-model-config";
 
 const missingSupabaseConfigMessage =
   "Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, or set NEXT_PUBLIC_DEMO_MODE=true for local demo fallback.";
@@ -64,7 +65,7 @@ export function shouldUseDemoFallback() {
 }
 
 export function hasOpenAiConfig() {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return getOpenAiEnvStatus().openaiProviderConfigured;
 }
 
 export function hasAiProviderConfig() {
@@ -113,7 +114,8 @@ export function getEnvironmentStatus() {
   const aiProvider = getAiProviderNameForEnv();
   const aiProviderKeyEnv = getAiProviderKeyEnvForEnv(aiProvider);
   const aiConfigured = hasAiProviderConfig();
-  const openaiConfigured = hasOpenAiConfig();
+  const openAiStatus = getOpenAiEnvStatus();
+  const openaiConfigured = openAiStatus.openaiProviderConfigured;
   const storageConfigured = hasStorageConfig();
   const storageBucketsConfigured = demoMode
     ? storageConfigured
@@ -138,6 +140,9 @@ export function getEnvironmentStatus() {
       ? "SUPABASE_STORAGE_INBODY_SCANS_BUCKET"
       : null,
     !demoMode && !aiConfigured ? aiProviderKeyEnv : null,
+    !demoMode && aiProvider === "openai" && !openAiStatus.openaiModelConfigured
+      ? "OPENAI_MODEL"
+      : null,
   ].filter(Boolean) as string[];
 
   return {
@@ -157,6 +162,10 @@ export function getEnvironmentStatus() {
     aiProviderKeyEnv,
     aiConfigured,
     openaiConfigured,
+    openaiProvider: openAiStatus.openaiProvider,
+    openaiProviderConfigured: openAiStatus.openaiProviderConfigured,
+    openaiModelConfigured: openAiStatus.openaiModelConfigured,
+    openaiFallbackConfigured: openAiStatus.openaiFallbackConfigured,
     anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     googleConfigured: Boolean(process.env.GOOGLE_API_KEY),
     deepseekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),

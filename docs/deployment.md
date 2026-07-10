@@ -11,6 +11,8 @@ This guide prepares the app for Vercel + Supabase staging, then production.
 ```bash
 npm install
 npm run lint
+npx tsc --noEmit
+npm test
 npm run build
 npm run smoke
 ```
@@ -25,7 +27,7 @@ STAGING_BASE_URL=https://your-staging-domain.vercel.app npm run verify-staging
 
 - `NEXT_PUBLIC_DEMO_MODE=false`
 - Supabase URL / publishable key / secret key 完整
-- `AI_PROVIDER` 與對應 provider API key 完整
+- `AI_PROVIDER`、對應 provider API key 與 `OPENAI_MODEL` 完整
 - Storage bucket 設定完整
 - `/api/health` 回傳 `status:"ok"`
 
@@ -128,7 +130,12 @@ SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_FALLBACK_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT_FOOD=low
+OPENAI_REASONING_EFFORT_INBODY=low
+OPENAI_REASONING_EFFORT_COACH=medium
+OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
 ANTHROPIC_API_KEY=
 GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
@@ -175,6 +182,9 @@ https://your-staging-domain.vercel.app/api/health
 - `aiProvider:"openai"` or another supported provider
 - `aiConfigured:true`
 - `openaiConfigured:true` when `AI_PROVIDER=openai`
+- `openaiProviderConfigured:true`
+- `openaiModelConfigured:true`
+- `openaiFallbackConfigured:true`
 - `storageBucketsConfigured:true`
 - `requiredEnvMissing:[]`
 - `status:"ok"`
@@ -206,7 +216,12 @@ Optional:
 ```env
 AI_PROVIDER=openai
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_FALLBACK_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT_FOOD=low
+OPENAI_REASONING_EFFORT_INBODY=low
+OPENAI_REASONING_EFFORT_COACH=medium
+OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
 ANTHROPIC_API_KEY=
 GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
@@ -238,7 +253,12 @@ SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_FALLBACK_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT_FOOD=low
+OPENAI_REASONING_EFFORT_INBODY=low
+OPENAI_REASONING_EFFORT_COACH=medium
+OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
 ANTHROPIC_API_KEY=
 GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
@@ -282,7 +302,12 @@ SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-openai-key
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.6-terra
+OPENAI_FALLBACK_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT_FOOD=low
+OPENAI_REASONING_EFFORT_INBODY=low
+OPENAI_REASONING_EFFORT_COACH=medium
+OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
 ANTHROPIC_API_KEY=
 GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
@@ -303,7 +328,17 @@ Behavior:
 - Demo Mode must be `false`.
 - Do not run `supabase/seed.sql` against production.
 - Missing Supabase env is a launch blocker.
+- Missing `OPENAI_MODEL` is a launch blocker when `AI_PROVIDER=openai`.
 - Production must keep privacy policy, terms, and medical disclaimer links available.
+
+## OpenAI API Model And Billing Notes
+
+- `OPENAI_MODEL` controls the primary OpenAI model. Staging recommendation: `gpt-5.6-terra`.
+- `OPENAI_FALLBACK_MODEL` keeps the previous stable model available for retryable model availability, rate limit, 5xx, or network errors. Recommended fallback: `gpt-5.5`.
+- `gpt-5.6` is an alias for `gpt-5.6-sol`.
+- GPT-5.6 API pricing: `gpt-5.6-sol` / `gpt-5.6` input US$5 per 1M tokens and output US$30 per 1M tokens; `gpt-5.6-terra` input US$2.50 and output US$15 per 1M tokens; `gpt-5.6-luna` input US$1 and output US$6 per 1M tokens.
+- ChatGPT and Codex subscriptions do not include OpenAI API usage. API billing, limits, and keys are managed separately in the OpenAI API dashboard.
+- Public health checks intentionally return only boolean OpenAI configuration status and must not expose model names or API keys.
 
 ## Demo Mode Switch
 
@@ -311,7 +346,7 @@ The app follows this rule:
 
 - `NEXT_PUBLIC_DEMO_MODE=true`: demo fallback is allowed when Supabase keys are missing.
 - `NEXT_PUBLIC_DEMO_MODE=false`: Supabase is required.
-- Any staging or production environment with missing Supabase config should show an explicit configuration error and must not silently return demo data.
+- Any staging or production environment with missing Supabase or required OpenAI model config should show an explicit configuration error and must not silently return demo data.
 
 Use `/api/health` to verify the active mode:
 
@@ -326,6 +361,10 @@ Use `/api/health` to verify the active mode:
     "aiProvider": "openai",
     "aiConfigured": true,
     "openaiConfigured": true,
+    "openaiProvider": "openai",
+    "openaiProviderConfigured": true,
+    "openaiModelConfigured": true,
+    "openaiFallbackConfigured": true,
     "storageBucketsConfigured": true,
     "requiredEnvMissing": [],
     "appVersion": "0.1.0",
@@ -450,6 +489,8 @@ Required checks:
 
 ```bash
 npm run lint
+npx tsc --noEmit
+npm test
 npm run build
 SMOKE_BASE_URL=https://your-preview-url.vercel.app npm run smoke
 ```
@@ -497,6 +538,9 @@ Fields:
 - `aiProvider`: active AI Gateway provider, defaulting to `openai`
 - `aiConfigured`: active provider key is present
 - `openaiConfigured`: `OPENAI_API_KEY` present
+- `openaiProviderConfigured`: `OPENAI_API_KEY` present
+- `openaiModelConfigured`: `OPENAI_MODEL` present
+- `openaiFallbackConfigured`: `OPENAI_FALLBACK_MODEL` present
 - `storageBucketsConfigured`: required storage bucket names available
 - `storageBuckets`: effective bucket names
 - `appVersion`: app version
