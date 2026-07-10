@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>離線模式 | Chengxin Health AI</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --background: #f7faf8;
+        --foreground: #14211d;
+        --muted: #63706b;
+        --line: #dce7e2;
+        --primary: #0f766e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        min-height: 100dvh;
+        margin: 0;
+        padding: calc(32px + env(safe-area-inset-top))
+          max(20px, env(safe-area-inset-right))
+          calc(32px + env(safe-area-inset-bottom))
+          max(20px, env(safe-area-inset-left));
+        background: var(--background);
+        color: var(--foreground);
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      main {
+        max-width: 620px;
+        margin: 0 auto;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .logo {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--primary);
+        color: #fff;
+        font-size: 24px;
+        line-height: 1;
+      }
+
+      h1 {
+        margin: 40px 0 12px;
+        font-size: 32px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.7;
+      }
+
+      ul {
+        margin: 24px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      li {
+        border-top: 1px solid var(--line);
+        padding: 14px 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--primary);
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <span class="logo">+</span>
+        <span>Chengxin Health AI</span>
+      </div>
+      <h1>目前離線</h1>
+      <p>
+        你可以稍後再重新整理頁面。為了保護健康資料，系統不會把個人 API 回應或敏感紀錄存進離線快取。
+      </p>
+      <ul>
+        <li>照片、健康紀錄與診所資料仍以 Supabase Storage / Postgres 權限為準。</li>
+        <li>請在網路恢復後再上傳餐點、InBody、用藥或預約資料。</li>
+        <li><a href="/dashboard">回到首頁</a></li>
+      </ul>
+    </main>
+  </body>
+</html>
