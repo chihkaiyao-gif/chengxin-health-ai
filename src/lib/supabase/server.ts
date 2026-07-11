@@ -180,12 +180,12 @@ export function getEnvironmentStatus() {
   };
 }
 
-export function createClient() {
+export async function createClient() {
   if (!hasSupabaseConfig()) {
     throw new Error(missingSupabaseConfigMessage);
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

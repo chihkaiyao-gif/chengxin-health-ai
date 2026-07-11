@@ -4,6 +4,10 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import {
+  assertNoRunningNextStartForWorkspace,
+  summarize,
+} from "./smoke-production-utils.mjs";
 
 const timeoutMs = Number(process.env.SMOKE_PRODUCTION_TIMEOUT_MS || 15000);
 const readyTimeoutMs = Number(
@@ -17,18 +21,6 @@ const checks = [
   { name: "page /login", path: "/login", kind: "page" },
   { name: "api /api/health", path: "/api/health", kind: "health" },
 ];
-
-function scrub(value) {
-  return String(value)
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[redacted-openai-key]")
-    .replace(/sb_secret_[A-Za-z0-9_-]{8,}/g, "[redacted-supabase-secret]")
-    .replace(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{8,}/g, "[redacted-jwt]")
-    .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g, "[redacted-image-data-url]");
-}
-
-function summarize(body, maxLength = 600) {
-  return scrub(body).replace(/\s+/g, " ").trim().slice(0, maxLength);
-}
 
 function runCommand(label, command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -221,6 +213,7 @@ function killChild(child) {
   }, 1500).unref();
 }
 
+assertNoRunningNextStartForWorkspace(process.cwd());
 await runCommand("production build", process.execPath, [nextBin, "build"]);
 
 const port = await findAvailablePort();

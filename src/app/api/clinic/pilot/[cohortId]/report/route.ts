@@ -5,12 +5,13 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     cohortId: string;
-  };
+  }>;
 };
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(_request: Request, props: RouteParams) {
+  const params = await props.params;
   const report = await getPilotCohortReport(params.cohortId);
 
   if (!report) {

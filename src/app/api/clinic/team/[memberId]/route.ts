@@ -5,10 +5,8 @@ import { clinicMemberUpdateSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { memberId: string } },
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ memberId: string }> }) {
+  const params = await props.params;
   const body = await request.json().catch(() => null);
   const parsed = clinicMemberUpdateSchema.safeParse(body);
 

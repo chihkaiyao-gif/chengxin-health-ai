@@ -5,12 +5,13 @@ import { pilotCohortMemberAddSchema } from "@/lib/validation";
 export const runtime = "nodejs";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     cohortId: string;
-  };
+  }>;
 };
 
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: Request, props: RouteParams) {
+  const params = await props.params;
   const body = await request.json().catch(() => null);
   const parsed = pilotCohortMemberAddSchema.safeParse(body);
 

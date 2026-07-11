@@ -15,7 +15,7 @@ export async function signInAction(formData: FormData) {
     redirect(encodedMessage("/login", "尚未設定 Supabase 環境變數。"));
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
     email,
@@ -49,7 +49,7 @@ export async function signUpAction(formData: FormData) {
     redirect(encodedMessage("/register", "尚未設定 Supabase 環境變數。"));
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -84,7 +84,7 @@ export async function signOutAction() {
     redirect("/");
   }
 
-  const supabase = createClient();
+  const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");
 }

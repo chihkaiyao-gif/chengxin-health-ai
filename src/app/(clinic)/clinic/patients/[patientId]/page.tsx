@@ -62,11 +62,12 @@ const medicationLabels: Record<Glp1MedicationName, string> = {
 const glp1SevereNotice =
   "若出現嚴重不適、持續嘔吐、脫水疑慮、嚴重腹痛、暈厥或低血糖感，請立即就醫或聯絡醫療人員，並請由醫師評估。";
 
-export default async function ClinicPatientDetailPage({
-  params,
-}: {
-  params: { patientId: string };
-}) {
+export default async function ClinicPatientDetailPage(
+  props: {
+    params: Promise<{ patientId: string }>;
+  }
+) {
+  const params = await props.params;
   const [detail, coachInsight] = await Promise.all([
     getClinicPatientDetail(params.patientId),
     getLatestCoachInsightForPatient(params.patientId),

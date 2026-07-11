@@ -4,13 +4,14 @@ import { signUpAction } from "@/app/auth/actions";
 import { MedicalNotice } from "@/components/medical-notice";
 
 type RegisterPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
     inviteCode?: string;
-  };
+  }>;
 };
 
-export default function RegisterPage({ searchParams }: RegisterPageProps) {
+export default async function RegisterPage(props: RegisterPageProps) {
+  const searchParams = await props.searchParams;
   return (
     <main className="grid min-h-screen place-items-center bg-[var(--background)] px-4 py-10">
       <section className="w-full max-w-2xl rounded-lg border border-slate-200 bg-white p-6">

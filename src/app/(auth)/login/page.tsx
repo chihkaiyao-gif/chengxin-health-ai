@@ -3,12 +3,13 @@ import { Activity, LogIn } from "lucide-react";
 import { signInAction } from "@/app/auth/actions";
 
 type LoginPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     message?: string;
-  };
+  }>;
 };
 
-export default function LoginPage({ searchParams }: LoginPageProps) {
+export default async function LoginPage(props: LoginPageProps) {
+  const searchParams = await props.searchParams;
   return (
     <main className="grid min-h-screen place-items-center bg-[var(--background)] px-4 py-10">
       <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6">

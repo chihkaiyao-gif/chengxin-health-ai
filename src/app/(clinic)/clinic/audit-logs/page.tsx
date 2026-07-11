@@ -10,7 +10,7 @@ import { auditLogQuerySchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 type AuditLogsPageProps = {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 const actionLabels: Record<string, string> = {
@@ -65,9 +65,8 @@ function flattenSearchParams(
   );
 }
 
-export default async function ClinicAuditLogsPage({
-  searchParams,
-}: AuditLogsPageProps) {
+export default async function ClinicAuditLogsPage(props: AuditLogsPageProps) {
+  const searchParams = await props.searchParams;
   const parsed = auditLogQuerySchema.safeParse(flattenSearchParams(searchParams));
   const filters = parsed.success
     ? parsed.data

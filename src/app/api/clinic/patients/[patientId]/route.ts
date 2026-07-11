@@ -7,10 +7,8 @@ import { hasSupabaseConfig } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(
-  request: Request,
-  { params }: { params: { patientId: string } },
-) {
+export async function GET(request: Request, props: { params: Promise<{ patientId: string }> }) {
+  const params = await props.params;
   if (!hasSupabaseConfig()) {
     const detail = await getClinicPatientDetail(params.patientId);
 

@@ -28,9 +28,9 @@ import type { FeedbackItem, PilotMemberMetrics } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 type PilotDetailPageProps = {
-  params: {
+  params: Promise<{
     cohortId: string;
-  };
+  }>;
 };
 
 const feedbackTypeLabels: Record<FeedbackItem["feedbackType"], string> = {
@@ -40,7 +40,8 @@ const feedbackTypeLabels: Record<FeedbackItem["feedbackType"], string> = {
   praise: "稱讚",
 };
 
-export default async function PilotDetailPage({ params }: PilotDetailPageProps) {
+export default async function PilotDetailPage(props: PilotDetailPageProps) {
+  const params = await props.params;
   const [detail, report] = await Promise.all([
     getPilotCohortDetail(params.cohortId),
     getPilotCohortReport(params.cohortId),

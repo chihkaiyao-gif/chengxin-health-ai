@@ -10,7 +10,7 @@ import { clinicFeedbackQuerySchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 
 type ClinicFeedbackPageProps = {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 const typeLabels: Record<FeedbackType, string> = {
@@ -37,9 +37,8 @@ function flattenSearchParams(
   );
 }
 
-export default async function ClinicFeedbackPage({
-  searchParams,
-}: ClinicFeedbackPageProps) {
+export default async function ClinicFeedbackPage(props: ClinicFeedbackPageProps) {
+  const searchParams = await props.searchParams;
   const parsed = clinicFeedbackQuerySchema.safeParse(
     flattenSearchParams(searchParams),
   );

@@ -5,10 +5,8 @@ import { completeDailyTaskSchema } from "@/lib/validation";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(
-  request: Request,
-  { params }: { params: { taskId: string } },
-) {
+export async function POST(request: Request, props: { params: Promise<{ taskId: string }> }) {
+  const params = await props.params;
   const contentType = request.headers.get("content-type") || "";
   const body = contentType.includes("application/json")
     ? await request.json().catch(() => ({}))
