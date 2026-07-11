@@ -210,6 +210,35 @@ export const trainingSessionQuerySchema = z
     }
   });
 
+export const trainingHistoryRecentQuerySchema = z
+  .object({
+    from: z.string().date().optional(),
+    to: z.string().date().optional(),
+    limit: z.coerce.number().int().min(1).max(20).default(20),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.from && input.to && input.from > input.to) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: "to must be on or after from",
+      });
+    }
+  });
+
+export const trainingLastPerformanceQuerySchema = z
+  .object({
+    movementName: z.string().trim().min(1).max(160),
+    equipmentBrand: optionalTrimmedString(120),
+    equipmentName: optionalTrimmedString(160),
+    equipmentModel: optionalTrimmedString(120),
+    gymName: optionalTrimmedString(160),
+    laterality: z.enum(["bilateral", "unilateral"]),
+    weightBasis: z.enum(["total", "per_side", "per_hand"]),
+  })
+  .strict();
+
 export const trainingSetLateralitySchema = z.enum(["bilateral", "unilateral"]);
 export const trainingSetSideSchema = z.enum([
   "both",

@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   CheckCircle2,
+  Clock3,
   Dumbbell,
+  History,
+  Loader2,
   Play,
   Plus,
+  RotateCcw,
   Save,
   Square,
   Trash2,
@@ -18,7 +28,13 @@ import {
   StatCard,
 } from "@/components/premium-ui";
 import { SectionCard } from "@/components/section-card";
-import type { TrainingLog, TrainingSet } from "@/lib/types";
+import { copyTrainingSetsToDrafts } from "@/lib/training-history";
+import type {
+  TrainingLastPerformance,
+  TrainingLog,
+  TrainingSet,
+  TrainingSetCopyDraft,
+} from "@/lib/types";
 
 type ApiEnvelope<T> = {
   data?: T;
@@ -45,6 +61,11 @@ type TrainingSetResponse = {
   trainingSet: TrainingSet;
 };
 
+type LastPerformanceResponse = {
+  persisted: boolean;
+  lastPerformance: TrainingLastPerformance | null;
+};
+
 type TrainingSetDraft = {
   exerciseOrder: string;
   movementName: string;
@@ -62,6 +83,16 @@ type TrainingSetDraft = {
   notes: string;
   batchCount: string;
 };
+
+type TrainingHistorySignatureDraft = Pick<
+  TrainingSetDraft,
+  | "movementName"
+  | "equipmentBrand"
+  | "equipmentName"
+  | "equipmentModel"
+  | "laterality"
+  | "weightBasis"
+>;
 
 const defaultDraft: TrainingSetDraft = {
   exerciseOrder: "1",
@@ -119,14 +150,99 @@ async function readJson<T>(response: Response) {
   return payload.data;
 }
 
+function appendParam(params: URLSearchParams, name: string, value?: string | null) {
+  const trimmed = value?.trim();
+  if (trimmed) params.set(name, trimmed);
+}
+
+function buildLastPerformancePath(
+  draft: TrainingHistorySignatureDraft,
+  currentGymName?: string | null,
+) {
+  const params = new URLSearchParams({
+    movementName: draft.movementName.trim(),
+    laterality: draft.laterality,
+    weightBasis: draft.weightBasis,
+  });
+  appendParam(params, "equipmentBrand", draft.equipmentBrand);
+  appendParam(params, "equipmentName", draft.equipmentName);
+  appendParam(params, "equipmentModel", draft.equipmentModel);
+  appendParam(params, "gymName", currentGymName);
+  return `/api/training-history/last-performance?${params.toString()}`;
+}
+
+function weightBasisLabel(value: TrainingSet["weightBasis"]) {
+  return {
+    total: "總重量",
+    per_side: "每側",
+    per_hand: "每手",
+  }[value];
+}
+
+function setTypeLabel(value: TrainingSet["setType"]) {
+  return {
+    warmup: "暖身組",
+    working: "工作組",
+    drop: "降重組",
+  }[value];
+}
+
+function sideLabel(value: TrainingSet["side"]) {
+  return {
+    both: "雙側",
+    left: "左側",
+    right: "右側",
+    alternating: "左右交替",
+  }[value ?? "both"];
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "未記錄日期";
+  return value.slice(0, 10);
+}
+
+function formatWeight(set: Pick<TrainingSet, "weightKg" | "weightBasis">) {
+  if (set.weightKg == null) return `未記錄重量／${weightBasisLabel(set.weightBasis)}`;
+  return `${set.weightKg} kg／${weightBasisLabel(set.weightBasis)}`;
+}
+
+function formatSetSummary(set: TrainingSet) {
+  return `${formatWeight(set)} · ${set.reps ?? "-"} 下 · RPE ${set.rpe ?? "-"} · ${setTypeLabel(set.setType)}${set.toFailure ? " · 力竭" : ""}`;
+}
+
+function copiedDraftToPayload(draft: TrainingSetCopyDraft) {
+  return {
+    exerciseOrder: Number(draft.exerciseOrder),
+    setNumber: Number(draft.setNumber),
+    movementName: draft.movementName,
+    equipmentBrand: draft.equipmentBrand || undefined,
+    equipmentName: draft.equipmentName || undefined,
+    equipmentModel: draft.equipmentModel || undefined,
+    laterality: draft.laterality,
+    side: draft.laterality === "bilateral" ? "both" : draft.side,
+    weightKg: draft.weightKg || undefined,
+    weightBasis: draft.weightBasis,
+    reps: draft.reps || undefined,
+    setType: draft.setType,
+    toFailure: false,
+    notes: draft.notes || undefined,
+  };
+}
+
 export function TrainingLogWorkspace() {
   const [session, setSession] = useState<TrainingLog | null>(null);
   const [sets, setSets] = useState<TrainingSet[]>([]);
   const [gymName, setGymName] = useState("");
   const [draft, setDraft] = useState<TrainingSetDraft>(defaultDraft);
+  const [copiedDrafts, setCopiedDrafts] = useState<TrainingSetCopyDraft[]>([]);
+  const [recentLogs, setRecentLogs] = useState<TrainingLog[]>([]);
+  const [lastPerformance, setLastPerformance] =
+    useState<TrainingLastPerformance | null>(null);
   const [persisted, setPersisted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -135,9 +251,73 @@ export function TrainingLogWorkspace() {
     () => new Set(sets.map((set) => set.movementName)).size,
     [sets],
   );
-
+  const currentGymName = session?.gymName ?? gymName;
   const sessionMinutes = session?.durationMinutes ?? 0;
   const isEnded = Boolean(session?.endedAt);
+  const historyDraft = useMemo<TrainingHistorySignatureDraft>(
+    () => ({
+      movementName: draft.movementName,
+      equipmentBrand: draft.equipmentBrand,
+      equipmentName: draft.equipmentName,
+      equipmentModel: draft.equipmentModel,
+      laterality: draft.laterality,
+      weightBasis: draft.weightBasis,
+    }),
+    [
+      draft.movementName,
+      draft.equipmentBrand,
+      draft.equipmentName,
+      draft.equipmentModel,
+      draft.laterality,
+      draft.weightBasis,
+    ],
+  );
+
+  const loadLastPerformance = useCallback(
+    async (nextDraft = historyDraft) => {
+      if (!nextDraft.movementName.trim()) {
+        setLastPerformance(null);
+        return;
+      }
+
+      setIsHistoryLoading(true);
+      setError("");
+
+      try {
+        const response = await fetch(
+          buildLastPerformancePath(nextDraft, currentGymName),
+          { cache: "no-store" },
+        );
+        const data = await readJson<LastPerformanceResponse>(response);
+        setPersisted(data.persisted);
+        setLastPerformance(data.lastPerformance);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "無法載入上次紀錄。");
+      } finally {
+        setIsHistoryLoading(false);
+      }
+    },
+    [currentGymName, historyDraft],
+  );
+
+  async function loadRecentHistory() {
+    setIsHistoryLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/training-history/recent?limit=5", {
+        cache: "no-store",
+      });
+      const data = await readJson<TrainingSessionsResponse>(response);
+      setPersisted(data.persisted);
+      setRecentLogs(data.trainingLogs);
+      setShowRecent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "無法載入最近紀錄。");
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -159,6 +339,7 @@ export function TrainingLogWorkspace() {
 
         setPersisted(data.persisted);
         setSession(currentSession);
+        setGymName(currentSession?.gymName ?? "");
         setSets(sortSets(currentSession?.sets ?? []));
       } catch (err) {
         if (isMounted) {
@@ -177,6 +358,14 @@ export function TrainingLogWorkspace() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadLastPerformance();
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [loadLastPerformance]);
 
   async function startSession() {
     setIsMutating(true);
@@ -202,7 +391,11 @@ export function TrainingLogWorkspace() {
       setPersisted(data.persisted);
       setSession(data.trainingLog);
       setSets(data.trainingLog.sets ?? []);
-      setMessage(data.persisted ? "已開始今日訓練。" : "Demo mode：已建立示範訓練，不會寫入正式資料庫。");
+      setMessage(
+        data.persisted
+          ? "已開始今日訓練。"
+          : "Demo mode：已建立示範訓練，不會寫入正式資料庫。",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法開始訓練。");
     } finally {
@@ -266,8 +459,54 @@ export function TrainingLogWorkspace() {
           ? `已新增 ${data.trainingSets.length} 組。`
           : "Demo mode：組數已驗證，但不會寫入正式資料庫。",
       );
+      void loadLastPerformance();
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法新增訓練組數。");
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
+  function loadLastAsDraft() {
+    if (!lastPerformance) {
+      setCopiedDrafts([]);
+      setMessage("目前沒有可載入的上次紀錄。");
+      return;
+    }
+
+    setCopiedDrafts(copyTrainingSetsToDrafts(lastPerformance.sets));
+    setMessage("已載入上次紀錄為草稿；確認後再儲存，不會自動寫入。");
+  }
+
+  async function saveCopiedDrafts() {
+    if (!session) {
+      setError("請先開始今天的訓練，再儲存載入的組數。");
+      return;
+    }
+    if (copiedDrafts.length === 0) return;
+
+    setIsMutating(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(`/api/training-logs/${session.id}/sets`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sets: copiedDrafts.map(copiedDraftToPayload) }),
+      });
+      const data = await readJson<TrainingSetsResponse>(response);
+
+      setPersisted(data.persisted);
+      setSets((current) => sortSets([...current, ...data.trainingSets]));
+      setCopiedDrafts([]);
+      setMessage(
+        data.persisted
+          ? `已儲存載入的 ${data.trainingSets.length} 組。`
+          : "Demo mode：載入組數已驗證，但不會寫入正式資料庫。",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "無法儲存載入的組數。");
     } finally {
       setIsMutating(false);
     }
@@ -298,7 +537,11 @@ export function TrainingLogWorkspace() {
 
       setPersisted(data.persisted);
       setSession({ ...data.trainingLog, sets });
-      setMessage(data.persisted ? "訓練已結束並更新時間。" : "Demo mode：結束訓練已驗證，但不會寫入正式資料庫。");
+      setMessage(
+        data.persisted
+          ? "訓練已結束並更新時間。"
+          : "Demo mode：結束訓練已驗證，但不會寫入正式資料庫。",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法結束訓練。");
     } finally {
@@ -351,7 +594,7 @@ export function TrainingLogWorkspace() {
             tone="emerald"
           />
           <StatCard
-            icon={Square}
+            icon={Clock3}
             label="訓練時間"
             value={sessionMinutes}
             unit="分"
@@ -487,77 +730,73 @@ export function TrainingLogWorkspace() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-4">
-              <div className="field-stack">
-                <label htmlFor="laterality">單側/雙側</label>
-                <select
-                  id="laterality"
-                  value={draft.laterality}
-                  onChange={(event) => {
-                    const laterality = event.target.value as TrainingSetDraft["laterality"];
-                    setDraft((current) => ({
-                      ...current,
-                      laterality,
-                      side: laterality === "bilateral" ? "both" : "alternating",
-                    }));
-                  }}
-                >
-                  <option value="bilateral">雙手/雙側一起</option>
-                  <option value="unilateral">單側</option>
-                </select>
-              </div>
-              <div className="field-stack">
-                <label htmlFor="side">側邊</label>
-                <select
-                  id="side"
-                  value={draft.side}
-                  disabled={draft.laterality === "bilateral"}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      side: event.target.value as TrainingSetDraft["side"],
-                    }))
-                  }
-                >
-                  <option value="both">雙側</option>
-                  <option value="alternating">左右交替</option>
-                  <option value="left">左側</option>
-                  <option value="right">右側</option>
-                </select>
-              </div>
-              <div className="field-stack">
-                <label htmlFor="weightBasis">重量記法</label>
-                <select
-                  id="weightBasis"
-                  value={draft.weightBasis}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      weightBasis: event.target.value as TrainingSetDraft["weightBasis"],
-                    }))
-                  }
-                >
-                  <option value="total">總重量</option>
-                  <option value="per_side">每側</option>
-                  <option value="per_hand">每手</option>
-                </select>
-              </div>
-              <div className="field-stack">
-                <label htmlFor="setType">組別</label>
-                <select
-                  id="setType"
-                  value={draft.setType}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      setType: event.target.value as TrainingSetDraft["setType"],
-                    }))
-                  }
-                >
-                  <option value="warmup">暖身組</option>
-                  <option value="working">工作組</option>
-                  <option value="drop">降重組</option>
-                </select>
-              </div>
+              <SelectField
+                id="laterality"
+                label="單側/雙側"
+                value={draft.laterality}
+                onChange={(value) => {
+                  const laterality = value as TrainingSetDraft["laterality"];
+                  setDraft((current) => ({
+                    ...current,
+                    laterality,
+                    side: laterality === "bilateral" ? "both" : "alternating",
+                  }));
+                }}
+                options={[
+                  ["bilateral", "雙手/雙側一起"],
+                  ["unilateral", "單側"],
+                ]}
+              />
+              <SelectField
+                id="side"
+                label="側邊"
+                value={draft.side}
+                disabled={draft.laterality === "bilateral"}
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    side: value as TrainingSetDraft["side"],
+                  }))
+                }
+                options={[
+                  ["both", "雙側"],
+                  ["alternating", "左右交替"],
+                  ["left", "左側"],
+                  ["right", "右側"],
+                ]}
+              />
+              <SelectField
+                id="weightBasis"
+                label="重量記法"
+                value={draft.weightBasis}
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    weightBasis: value as TrainingSetDraft["weightBasis"],
+                  }))
+                }
+                options={[
+                  ["total", "總重量"],
+                  ["per_side", "每側"],
+                  ["per_hand", "每手"],
+                ]}
+              />
+              <SelectField
+                id="setType"
+                label="組別"
+                value={draft.setType}
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    setType: value as TrainingSetDraft["setType"],
+                  }))
+                }
+                options={[
+                  ["warmup", "暖身組"],
+                  ["working", "工作組"],
+                  ["drop", "降重組"],
+                ]}
+              />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-4">
@@ -612,12 +851,27 @@ export function TrainingLogWorkspace() {
         </SectionCard>
       </div>
 
+      <TrainingHistoryPanel
+        isLoading={isHistoryLoading}
+        lastPerformance={lastPerformance}
+        recentLogs={recentLogs}
+        showRecent={showRecent}
+        copiedDrafts={copiedDrafts}
+        onLoadLast={loadLastAsDraft}
+        onRefreshLast={() => loadLastPerformance()}
+        onLoadRecent={loadRecentHistory}
+        onToggleRecent={() => setShowRecent((current) => !current)}
+        onSaveCopied={saveCopiedDrafts}
+        onClearCopied={() => setCopiedDrafts([])}
+        canSaveCopied={Boolean(session) && copiedDrafts.length > 0 && !isMutating}
+      />
+
       <SectionCard title="今日動作與組數" eyebrow="Workout log">
         {sets.length === 0 ? (
           <div className="rounded-[var(--chx-radius-card)] border border-dashed border-[var(--chx-line-strong)] bg-white/70 p-6 text-center">
-            <p className="text-lg font-semibold text-slate-950">尚無組數紀錄</p>
+            <p className="text-lg font-semibold text-slate-950">尚未記錄組數</p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              開始 session 後，可先新增 Hammer Strength ILWPD 每側 30kg、12 下、RPE 8。
+              開始 session 後，可先新增 Hammer Strength ILWPD 每側 30 kg、12 下、RPE 8。
             </p>
           </div>
         ) : (
@@ -643,6 +897,273 @@ export function TrainingLogWorkspace() {
       </SectionCard>
 
       <MedicalNotice compact />
+    </div>
+  );
+}
+
+function TrainingHistoryPanel({
+  isLoading,
+  lastPerformance,
+  recentLogs,
+  showRecent,
+  copiedDrafts,
+  canSaveCopied,
+  onLoadLast,
+  onRefreshLast,
+  onLoadRecent,
+  onToggleRecent,
+  onSaveCopied,
+  onClearCopied,
+}: {
+  isLoading: boolean;
+  lastPerformance: TrainingLastPerformance | null;
+  recentLogs: TrainingLog[];
+  showRecent: boolean;
+  copiedDrafts: TrainingSetCopyDraft[];
+  canSaveCopied: boolean;
+  onLoadLast: () => void;
+  onRefreshLast: () => void;
+  onLoadRecent: () => void;
+  onToggleRecent: () => void;
+  onSaveCopied: () => void;
+  onClearCopied: () => void;
+}) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_0.92fr]">
+      <SectionCard title="上次紀錄" eyebrow="History">
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <PremiumButton
+              type="button"
+              icon={RotateCcw}
+              variant="soft"
+              disabled={isLoading || !lastPerformance}
+              onClick={onLoadLast}
+            >
+              載入上次紀錄
+            </PremiumButton>
+            <PremiumButton
+              type="button"
+              icon={isLoading ? Loader2 : History}
+              variant="ghost"
+              disabled={isLoading}
+              onClick={onRefreshLast}
+            >
+              查看上次
+            </PremiumButton>
+          </div>
+
+          {!lastPerformance ? (
+            <div className="rounded-[var(--chx-radius-card)] border border-dashed border-[var(--chx-line-strong)] bg-slate-50 p-5">
+              <p className="font-semibold text-slate-950">尚無相同器材紀錄</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                系統會依健身房、動作、器材品牌、器材名稱、型號、單/雙側與重量記法精確區分，不會把不同機器混在一起。
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-[var(--chx-radius-card)] bg-teal-50 p-4">
+                <p className="text-sm font-semibold text-teal-900">
+                  {formatDate(lastPerformance.startedAt ?? lastPerformance.trainedOn)}
+                </p>
+                <p className="mt-1 text-lg font-bold text-slate-950">
+                  {lastPerformance.signature.movementName}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {lastPerformance.gymName || "未記錄健身房"} ·{" "}
+                  {[
+                    lastPerformance.signature.equipmentBrand,
+                    lastPerformance.signature.equipmentName,
+                    lastPerformance.signature.equipmentModel,
+                  ]
+                    .filter(Boolean)
+                    .join(" / ") || "未記錄器材"}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <MiniMetric
+                  label="上次工作重量"
+                  value={
+                    lastPerformance.lastWorkingWeightKg == null
+                      ? "-"
+                      : `${lastPerformance.lastWorkingWeightKg} kg／${weightBasisLabel(lastPerformance.signature.weightBasis)}`
+                  }
+                />
+                <MiniMetric
+                  label="最佳工作組"
+                  value={
+                    lastPerformance.bestWorkingSet
+                      ? `${formatWeight(lastPerformance.bestWorkingSet)} · ${lastPerformance.bestWorkingSet.reps ?? "-"} 下`
+                      : "-"
+                  }
+                />
+                <MiniMetric
+                  label="最近 RPE"
+                  value={
+                    [...lastPerformance.sets].reverse().find((set) => set.rpe != null)
+                      ?.rpe ?? "-"
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                {lastPerformance.sets.map((set) => (
+                  <div
+                    key={set.id}
+                    className="rounded-2xl border border-[var(--chx-line)] bg-white px-4 py-3 text-sm"
+                  >
+                    <p className="font-semibold text-slate-950">
+                      第 {set.setNumber} 組 · {formatSetSummary(set)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {sideLabel(set.side)} · {set.laterality === "unilateral" ? "單側" : "雙側"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {copiedDrafts.length > 0 ? (
+            <div className="rounded-[var(--chx-radius-card)] border border-teal-100 bg-white p-4">
+              <p className="font-semibold text-slate-950">
+                已載入 {copiedDrafts.length} 組草稿
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                舊 set id 不會保留，RPE 已清空，力竭預設關閉。按下儲存後才會寫入今天的 session。
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <PremiumButton
+                  type="button"
+                  icon={Save}
+                  disabled={!canSaveCopied}
+                  onClick={onSaveCopied}
+                >
+                  儲存載入的組數
+                </PremiumButton>
+                <PremiumButton
+                  type="button"
+                  variant="ghost"
+                  onClick={onClearCopied}
+                >
+                  清除草稿
+                </PremiumButton>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="最近紀錄" eyebrow="Recent 5">
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <PremiumButton
+              type="button"
+              icon={History}
+              variant="soft"
+              disabled={isLoading}
+              onClick={recentLogs.length > 0 ? onToggleRecent : onLoadRecent}
+            >
+              {showRecent ? "收合最近紀錄" : "展開最近 5 次"}
+            </PremiumButton>
+            <PremiumButton
+              type="button"
+              variant="ghost"
+              disabled={isLoading}
+              onClick={onLoadRecent}
+            >
+              重新整理
+            </PremiumButton>
+          </div>
+
+          {showRecent && recentLogs.length === 0 ? (
+            <div className="rounded-[var(--chx-radius-card)] border border-dashed border-[var(--chx-line-strong)] bg-slate-50 p-5">
+              <p className="font-semibold text-slate-950">尚無最近訓練紀錄</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                完成第一次訓練後，這裡會顯示最近 5 次 session 與每組重量。
+              </p>
+            </div>
+          ) : null}
+
+          {showRecent ? (
+            <div className="space-y-3">
+              {recentLogs.map((log) => (
+                <article
+                  key={log.id}
+                  className="rounded-[var(--chx-radius-card)] border border-[var(--chx-line)] bg-white p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-950">
+                        {formatDate(log.startedAt ?? log.trainedOn)}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {log.gymName || "未記錄健身房"} · {log.durationMinutes} 分
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                      {log.sets?.length ?? 0} 組
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {sortSets(log.sets ?? []).slice(0, 6).map((set) => (
+                      <p key={set.id} className="text-sm text-slate-700">
+                        {set.movementName} · 第 {set.setNumber} 組 · {formatSetSummary(set)}
+                      </p>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-2xl bg-white px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-base font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function SelectField({
+  id,
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="field-stack">
+      <label htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -711,7 +1232,11 @@ function TrainingSetEditor({
       });
       const data = await readJson<TrainingSetResponse>(response);
       onSaved(data.trainingSet);
-      setMessage(data.persisted ? "已更新組數。" : "Demo mode：更新已驗證，但不會寫入正式資料庫。");
+      setMessage(
+        data.persisted
+          ? "已更新組數。"
+          : "Demo mode：更新已驗證，但不會寫入正式資料庫。",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法更新組數。");
     } finally {
@@ -746,13 +1271,17 @@ function TrainingSetEditor({
             {trainingSet.exerciseOrder}. {trainingSet.movementName}
           </p>
           <p className="mt-1 text-sm text-slate-500">
-            第 {trainingSet.setNumber} 組 · {setTypeLabel(trainingSet.setType)} · {sideLabel(trainingSet.side)}
+            第 {trainingSet.setNumber} 組 · {setTypeLabel(trainingSet.setType)} ·{" "}
+            {sideLabel(trainingSet.side)}
             {trainingSet.toFailure ? " · 力竭" : ""}
           </p>
           <p className="mt-1 text-xs font-medium text-slate-500">
             {[trainingSet.equipmentBrand, trainingSet.equipmentName, trainingSet.equipmentModel]
               .filter(Boolean)
               .join(" / ") || "未記錄器材"}
+          </p>
+          <p className="mt-2 text-sm font-semibold text-teal-800">
+            {formatWeight(trainingSet)}
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:w-[360px]">
@@ -809,21 +1338,4 @@ function InlineNumberField({
       />
     </label>
   );
-}
-
-function setTypeLabel(value: TrainingSet["setType"]) {
-  return {
-    warmup: "暖身組",
-    working: "工作組",
-    drop: "降重組",
-  }[value];
-}
-
-function sideLabel(value: TrainingSet["side"]) {
-  return {
-    both: "雙側",
-    left: "左側",
-    right: "右側",
-    alternating: "左右交替",
-  }[value ?? "both"];
 }

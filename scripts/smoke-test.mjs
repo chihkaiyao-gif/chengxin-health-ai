@@ -62,6 +62,8 @@ const apiChecks = [
   "/api/tasks/today",
   "/api/streaks/me",
   "/api/badges/me",
+  "/api/training-history/recent",
+  "/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&equipmentBrand=Hammer%20Strength&equipmentName=ILWPD&laterality=unilateral&weightBasis=per_side",
   "/api/ai/coach-insight/today",
   "/api/ai/coach-insight/history",
   "/api/health",

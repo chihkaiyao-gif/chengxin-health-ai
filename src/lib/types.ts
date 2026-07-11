@@ -307,6 +307,47 @@ export type TrainingSet = {
   updatedAt: string;
 };
 
+export type TrainingEquipmentSignature = {
+  gymName: string | null;
+  movementName: string;
+  equipmentBrand: string | null;
+  equipmentName: string | null;
+  equipmentModel: string | null;
+  laterality: TrainingLaterality;
+  weightBasis: TrainingWeightBasis;
+};
+
+export type TrainingLastPerformance = {
+  sessionId: string;
+  trainedOn: string;
+  startedAt: string | null | undefined;
+  gymName: string | null | undefined;
+  signature: TrainingEquipmentSignature;
+  sets: TrainingSet[];
+  lastWorkingWeightKg: number | null;
+  bestWorkingSet: TrainingSet | null;
+  hasDropSet: boolean;
+  hasToFailure: boolean;
+};
+
+export type TrainingSetCopyDraft = {
+  exerciseOrder: string;
+  setNumber: string;
+  movementName: string;
+  equipmentBrand: string;
+  equipmentName: string;
+  equipmentModel: string;
+  laterality: TrainingLaterality;
+  side: TrainingSetSide;
+  weightKg: string;
+  weightBasis: TrainingWeightBasis;
+  reps: string;
+  setType: TrainingSetType;
+  toFailure: boolean;
+  rpe: string;
+  notes: string;
+};
+
 export type EngagementMetric = {
   id: string;
   userId: string;

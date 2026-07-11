@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import type {
+  TrainingEquipmentSignature,
   TrainingLog,
   TrainingSet,
   TrainingSetSide,
@@ -62,6 +63,10 @@ export type TrainingSetRow = {
   updated_at: string;
 };
 
+export type TrainingLogWithSetRows = TrainingLogRow & {
+  training_sets?: TrainingSetRow[] | null;
+};
+
 type StoreResult<T> = Promise<{ data: T | null; error: unknown }>;
 
 type SupabaseQueryResult<T = unknown> = {
@@ -75,6 +80,7 @@ type SupabaseQuery = PromiseLike<SupabaseQueryResult> & {
   gte: (column: string, value: unknown) => SupabaseQuery;
   in: (column: string, values: readonly string[]) => SupabaseQuery;
   insert: (row: unknown) => SupabaseQuery;
+  is: (column: string, value: unknown) => SupabaseQuery;
   limit: (count: number) => SupabaseQuery;
   lte: (column: string, value: unknown) => SupabaseQuery;
   maybeSingle: () => Promise<SupabaseQueryResult>;
@@ -106,6 +112,11 @@ export type TrainingStore = {
   ): StoreResult<TrainingSetRow[]>;
   listSets(trainingLogId: string): StoreResult<TrainingSetRow[]>;
   listSetsForSessions(trainingLogIds: string[]): StoreResult<TrainingSetRow[]>;
+  findLastPerformanceSessions(
+    patientId: string,
+    signature: TrainingEquipmentSignature,
+    limit: number,
+  ): StoreResult<TrainingLogWithSetRows[]>;
   findSetForOwner(setId: string, patientId: string): StoreResult<TrainingSetRow>;
   updateSet(
     setId: string,
@@ -382,6 +393,14 @@ function assertStoreResult<T>(result: { data: T | null; error: unknown }) {
   return result.data;
 }
 
+function applyNullableFilter(
+  builder: SupabaseQuery,
+  column: string,
+  value: string | null,
+) {
+  return value === null ? builder.is(column, null) : builder.eq(column, value);
+}
+
 export async function createTrainingSession(
   input: CreateTrainingSessionInput,
   patientId: string,
@@ -627,6 +646,39 @@ export function createSupabaseTrainingStore(supabase: SupabaseTrainingClient): T
         .order("set_number", { ascending: true })
         .order("created_at", { ascending: true });
       return { data: data as TrainingSetRow[] | null, error };
+    },
+    async findLastPerformanceSessions(patientId, signature, limit) {
+      let builder = supabase
+        .from("training_logs")
+        .select(`${sessionSelect},training_sets!inner(${setSelect})`)
+        .eq("patient_id", patientId)
+        .eq("training_sets.movement_name", signature.movementName)
+        .eq("training_sets.laterality", signature.laterality)
+        .eq("training_sets.weight_basis", signature.weightBasis)
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .order("trained_on", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      builder = applyNullableFilter(builder, "gym_name", signature.gymName);
+      builder = applyNullableFilter(
+        builder,
+        "training_sets.equipment_brand",
+        signature.equipmentBrand,
+      );
+      builder = applyNullableFilter(
+        builder,
+        "training_sets.equipment_name",
+        signature.equipmentName,
+      );
+      builder = applyNullableFilter(
+        builder,
+        "training_sets.equipment_model",
+        signature.equipmentModel,
+      );
+
+      const { data, error } = await builder;
+      return { data: data as TrainingLogWithSetRows[] | null, error };
     },
     async findSetForOwner(setId, patientId) {
       const { data, error } = await supabase

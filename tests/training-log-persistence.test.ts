@@ -12,11 +12,18 @@ import {
   type TrainingApiDeps,
 } from "../src/lib/training-api";
 import {
+  handleLastTrainingPerformance,
+  handleRecentTrainingHistory,
+} from "../src/lib/training-history-api";
+import { copyTrainingSetsToDrafts } from "../src/lib/training-history";
+import {
   buildTrainingSessionInsert,
   type TrainingLogRow,
+  type TrainingLogWithSetRows,
   type TrainingSetRow,
   type TrainingStore,
 } from "../src/lib/training";
+import type { TrainingEquipmentSignature } from "../src/lib/types";
 
 class MemoryTrainingStore implements TrainingStore {
   sessions: TrainingLogRow[] = [];
@@ -131,6 +138,49 @@ class MemoryTrainingStore implements TrainingStore {
     };
   }
 
+  async findLastPerformanceSessions(
+    patientId: string,
+    signature: TrainingEquipmentSignature,
+    limit: number,
+  ) {
+    const nullable = (value: string | null | undefined) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : null;
+    };
+    const rows: TrainingLogWithSetRows[] = this.sessions
+      .filter((session) => session.patient_id === patientId)
+      .filter((session) => nullable(session.gym_name) === signature.gymName)
+      .map((session) => ({
+        ...session,
+        training_sets: this.sets.filter(
+          (set) =>
+            set.training_log_id === session.id &&
+            set.movement_name.trim() === signature.movementName &&
+            nullable(set.equipment_brand) === signature.equipmentBrand &&
+            nullable(set.equipment_name) === signature.equipmentName &&
+            nullable(set.equipment_model) === signature.equipmentModel &&
+            set.laterality === signature.laterality &&
+            set.weight_basis === signature.weightBasis,
+        ),
+      }))
+      .filter((session) => (session.training_sets ?? []).length > 0)
+      .sort((left, right) => {
+        if (left.started_at !== right.started_at) {
+          if (!left.started_at) return 1;
+          if (!right.started_at) return -1;
+          return right.started_at.localeCompare(left.started_at);
+        }
+
+        return (
+          right.trained_on.localeCompare(left.trained_on) ||
+          right.created_at.localeCompare(left.created_at)
+        );
+      })
+      .slice(0, limit);
+
+    return { data: rows, error: null };
+  }
+
   async findSetForOwner(setId: string, patientId: string) {
     const set = this.sets.find((candidate) => candidate.id === setId);
     const session = set
@@ -223,6 +273,19 @@ const validSetPayload = {
 async function createSession(store: MemoryTrainingStore, userId = "user-1") {
   const response = await handleCreateTrainingSession(
     jsonRequest("/api/training-logs", validSessionPayload),
+    depsFor(store, userId),
+  );
+  const body = await responseJson<{ trainingLog: { id: string } }>(response);
+  return body.data?.trainingLog.id ?? "";
+}
+
+async function createSessionWithPayload(
+  store: MemoryTrainingStore,
+  userId: string,
+  payload: typeof validSessionPayload & { gymName?: string },
+) {
+  const response = await handleCreateTrainingSession(
+    jsonRequest("/api/training-logs", payload),
     depsFor(store, userId),
   );
   const body = await responseJson<{ trainingLog: { id: string } }>(response);
@@ -524,4 +587,339 @@ test("demo mode returns persisted false and never writes through the store", asy
   assert.equal(store.calls.updateSet, 0);
   assert.equal(store.calls.deleteSession, 0);
   assert.equal(store.calls.deleteSet, 0);
+});
+
+test("training history rejects unauthenticated requests", async () => {
+  const store = new MemoryTrainingStore();
+  const response = await handleRecentTrainingHistory(
+    new Request("http://127.0.0.1/api/training-history/recent"),
+    depsFor(store, null),
+  );
+
+  assert.equal(response.status, 401);
+});
+
+test("training history recent only returns the current user's sessions with sets", async () => {
+  const store = new MemoryTrainingStore();
+  const ownSession = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+  });
+  const otherSession = await createSessionWithPayload(store, "user-2", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T09:00:00+08:00",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${ownSession}/sets`, validSetPayload),
+    ownSession,
+    depsFor(store, "user-1"),
+  );
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${otherSession}/sets`, validSetPayload),
+    otherSession,
+    depsFor(store, "user-2"),
+  );
+
+  const response = await handleRecentTrainingHistory(
+    new Request("http://127.0.0.1/api/training-history/recent?limit=5"),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{ trainingLogs: Array<{ id: string; sets: unknown[] }> }>(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data?.trainingLogs.length, 1);
+  assert.equal(body.data?.trainingLogs[0].id, ownSession);
+  assert.equal(body.data?.trainingLogs[0].sets.length, 1);
+});
+
+test("training history returns null when no matching last performance exists", async () => {
+  const store = new MemoryTrainingStore();
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      "http://127.0.0.1/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&laterality=unilateral&weightBasis=per_side",
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{ lastPerformance: unknown | null }>(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data?.lastPerformance, null);
+});
+
+test("training history last performance matches exact equipment signature and sorts sets", async () => {
+  const store = new MemoryTrainingStore();
+  const olderSession = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-09T08:00:00+08:00",
+    gymName: "Chengxin Gym",
+  });
+  const ignoredModelSession = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-10T08:00:00+08:00",
+    gymName: "Chengxin Gym",
+  });
+  const latestSession = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+    gymName: "Chengxin Gym",
+  });
+  const patientBSession = await createSessionWithPayload(store, "user-2", {
+    ...validSessionPayload,
+    startedAt: "2026-07-12T08:00:00+08:00",
+    gymName: "Chengxin Gym",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${olderSession}/sets`, {
+      sets: [
+        { ...validSetPayload, setNumber: 1, equipmentModel: "v1", weightKg: 28 },
+        { ...validSetPayload, setNumber: 2, equipmentModel: "v1", weightKg: 30 },
+      ],
+    }),
+    olderSession,
+    depsFor(store, "user-1"),
+  );
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${ignoredModelSession}/sets`, {
+      ...validSetPayload,
+      equipmentModel: "v2",
+      weightKg: 60,
+    }),
+    ignoredModelSession,
+    depsFor(store, "user-1"),
+  );
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${latestSession}/sets`, {
+      sets: [
+        {
+          ...validSetPayload,
+          setNumber: 2,
+          equipmentModel: "v1",
+          weightKg: 32,
+          reps: 10,
+          rpe: 8.5,
+        },
+        {
+          ...validSetPayload,
+          setNumber: 1,
+          equipmentModel: "v1",
+          setType: "warmup",
+          weightKg: 20,
+          reps: 12,
+          rpe: 6,
+        },
+        {
+          ...validSetPayload,
+          setNumber: 3,
+          equipmentModel: "v1",
+          setType: "drop",
+          weightKg: 24,
+          reps: 8,
+          toFailure: true,
+        },
+      ],
+    }),
+    latestSession,
+    depsFor(store, "user-1"),
+  );
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${patientBSession}/sets`, {
+      ...validSetPayload,
+      equipmentModel: "v1",
+      weightKg: 100,
+    }),
+    patientBSession,
+    depsFor(store, "user-2"),
+  );
+
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      "http://127.0.0.1/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&equipmentBrand=Hammer%20Strength&equipmentName=ILWPD&equipmentModel=v1&gymName=Chengxin%20Gym&laterality=unilateral&weightBasis=per_side",
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{
+    lastPerformance: {
+      sessionId: string;
+      lastWorkingWeightKg: number | null;
+      bestWorkingSet: { weightKg: number | null; reps: number | null } | null;
+      hasDropSet: boolean;
+      hasToFailure: boolean;
+      sets: Array<{ setNumber: number; weightKg: number | null }>;
+    } | null;
+  }>(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data?.lastPerformance?.sessionId, latestSession);
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => set.setNumber),
+    [1, 2, 3],
+  );
+  assert.equal(body.data?.lastPerformance?.lastWorkingWeightKg, 32);
+  assert.equal(body.data?.lastPerformance?.bestWorkingSet?.weightKg, 32);
+  assert.equal(body.data?.lastPerformance?.bestWorkingSet?.reps, 10);
+  assert.equal(body.data?.lastPerformance?.hasDropSet, true);
+  assert.equal(body.data?.lastPerformance?.hasToFailure, true);
+});
+
+test("training history does not mix equipment model, weight basis, or laterality", async () => {
+  const store = new MemoryTrainingStore();
+  const sessionId = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      sets: [
+        { ...validSetPayload, equipmentModel: "ILWPD-A", weightBasis: "per_side", laterality: "unilateral", side: "alternating", weightKg: 30 },
+        { ...validSetPayload, setNumber: 2, equipmentModel: "ILWPD-B", weightBasis: "per_side", laterality: "unilateral", side: "alternating", weightKg: 40 },
+        { ...validSetPayload, setNumber: 3, equipmentModel: "ILWPD-A", weightBasis: "total", laterality: "unilateral", side: "alternating", weightKg: 60 },
+        { ...validSetPayload, setNumber: 4, equipmentModel: "ILWPD-A", weightBasis: "per_side", laterality: "bilateral", side: "both", weightKg: 80 },
+      ],
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      "http://127.0.0.1/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&equipmentBrand=Hammer%20Strength&equipmentName=ILWPD&equipmentModel=ILWPD-A&laterality=unilateral&weightBasis=per_side",
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{
+    lastPerformance: { sets: Array<{ weightKg: number | null }> } | null;
+  }>(response);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => set.weightKg),
+    [30],
+  );
+});
+
+test("training history treats omitted optional signature fields as exact null matches", async () => {
+  const store = new MemoryTrainingStore();
+  const sessionId = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      sets: [
+        { ...validSetPayload, equipmentModel: undefined, weightKg: 30 },
+        { ...validSetPayload, setNumber: 2, equipmentModel: "ILWPD-v2", weightKg: 45 },
+      ],
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      "http://127.0.0.1/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&equipmentBrand=Hammer%20Strength&equipmentName=ILWPD&laterality=unilateral&weightBasis=per_side",
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{
+    lastPerformance: { sets: Array<{ weightKg: number | null }> } | null;
+  }>(response);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => set.weightKg),
+    [30],
+  );
+});
+
+test("training history keeps separate exercise order blocks from being merged", async () => {
+  const store = new MemoryTrainingStore();
+  const sessionId = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      sets: [
+        { ...validSetPayload, exerciseOrder: 1, setNumber: 1, weightKg: 30 },
+        { ...validSetPayload, exerciseOrder: 1, setNumber: 2, weightKg: 32 },
+        { ...validSetPayload, exerciseOrder: 2, setNumber: 1, weightKg: 60 },
+      ],
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      "http://127.0.0.1/api/training-history/last-performance?movementName=Hammer%20Strength%20ILWPD&equipmentBrand=Hammer%20Strength&equipmentName=ILWPD&laterality=unilateral&weightBasis=per_side",
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{
+    lastPerformance: {
+      sets: Array<{ exerciseOrder: number; weightKg: number | null }>;
+      lastWorkingWeightKg: number | null;
+    } | null;
+  }>(response);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => set.exerciseOrder),
+    [1, 1],
+  );
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => set.weightKg),
+    [30, 32],
+  );
+  assert.equal(body.data?.lastPerformance?.lastWorkingWeightKg, 32);
+});
+
+test("training history query validates limit upper bound", async () => {
+  const store = new MemoryTrainingStore();
+  const response = await handleRecentTrainingHistory(
+    new Request("http://127.0.0.1/api/training-history/recent?limit=21"),
+    depsFor(store, "user-1"),
+  );
+
+  assert.equal(response.status, 422);
+});
+
+test("copying last performance creates client-side drafts without old ids or today's RPE", () => {
+  const drafts = copyTrainingSetsToDrafts([
+    {
+      id: "old-set-id",
+      trainingLogId: "old-session",
+      exerciseOrder: 1,
+      setNumber: 2,
+      movementName: "Hammer Strength ILWPD",
+      equipmentName: "ILWPD",
+      equipmentBrand: "Hammer Strength",
+      equipmentModel: "v1",
+      laterality: "unilateral",
+      side: "alternating",
+      weightKg: 30,
+      weightBasis: "per_side",
+      reps: 12,
+      setType: "working",
+      toFailure: true,
+      rpe: 8.5,
+      notes: "same setup",
+      createdAt: "2026-07-10T08:00:00.000Z",
+      updatedAt: "2026-07-10T08:00:00.000Z",
+    },
+  ]);
+
+  assert.equal("id" in drafts[0], false);
+  assert.equal(drafts[0].exerciseOrder, "1");
+  assert.equal(drafts[0].setNumber, "2");
+  assert.equal(drafts[0].weightKg, "30");
+  assert.equal(drafts[0].weightBasis, "per_side");
+  assert.equal(drafts[0].rpe, "");
+  assert.equal(drafts[0].toFailure, false);
+  assert.equal(drafts[0].notes, "same setup");
 });
