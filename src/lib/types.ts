@@ -268,11 +268,43 @@ export type TrainingLog = {
   id: string;
   userId: string;
   trainedOn: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  gymName?: string | null;
   activityType: string;
   durationMinutes: number;
   intensity: TrainingIntensity;
   notes: string | null;
   createdAt: string;
+  updatedAt?: string;
+  sets?: TrainingSet[];
+};
+
+export type TrainingLaterality = "bilateral" | "unilateral";
+export type TrainingSetSide = "both" | "left" | "right" | "alternating";
+export type TrainingWeightBasis = "total" | "per_side" | "per_hand";
+export type TrainingSetType = "warmup" | "working" | "drop";
+
+export type TrainingSet = {
+  id: string;
+  trainingLogId: string;
+  exerciseOrder: number;
+  setNumber: number;
+  movementName: string;
+  equipmentName: string | null;
+  equipmentBrand: string | null;
+  equipmentModel: string | null;
+  laterality: TrainingLaterality;
+  side: TrainingSetSide | null;
+  weightKg: number | null;
+  weightBasis: TrainingWeightBasis;
+  reps: number | null;
+  setType: TrainingSetType;
+  toFailure: boolean;
+  rpe: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type EngagementMetric = {

@@ -113,13 +113,219 @@ export const healthAssessmentSchema = z.object({
   dataUseConsent: z.literal("on"),
 });
 
-export const trainingLogSchema = z.object({
-  trainedOn: z.string().date(),
-  activityType: z.string().min(1).max(120),
-  durationMinutes: z.coerce.number().int().min(1).max(600),
-  intensity: z.enum(["LOW", "MEDIUM", "HIGH"]),
-  notes: z.string().max(1000).optional(),
-});
+const blankToUndefined = (value: unknown) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+};
+
+const optionalTrimmedString = (maxLength: number) =>
+  z.preprocess(
+    blankToUndefined,
+    z.string().trim().min(1).max(maxLength).optional(),
+  );
+
+const optionalIsoDateTime = z.preprocess(
+  blankToUndefined,
+  z.string().datetime({ offset: true }).optional(),
+);
+
+const optionalNullableNumber = (schema: z.ZodNumber) =>
+  z.preprocess(blankToUndefined, z.coerce.number().pipe(schema).optional());
+
+const booleanishSchema = z.preprocess((value) => {
+  if (value === "true" || value === "1" || value === true) {
+    return true;
+  }
+
+  if (value === "false" || value === "0" || value === false) {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
+const trainingSessionFieldsSchema = z
+  .object({
+    startedAt: optionalIsoDateTime,
+    endedAt: optionalIsoDateTime,
+    gymName: optionalTrimmedString(160),
+    activityType: z
+      .preprocess(blankToUndefined, z.string().trim().min(1).max(160).optional())
+      .default("strength_training"),
+    durationMinutes: z.coerce.number().int().min(1).max(600).optional(),
+    intensity: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
+    notes: optionalTrimmedString(1000),
+  })
+  .strict();
+
+const validateSessionTimeOrder = (
+  input: { startedAt?: string; endedAt?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (input.startedAt && input.endedAt) {
+    const startedAt = Date.parse(input.startedAt);
+    const endedAt = Date.parse(input.endedAt);
+
+    if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt < startedAt) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endedAt"],
+        message: "endedAt must be after startedAt",
+      });
+    }
+  }
+};
+
+export const createTrainingSessionSchema = trainingSessionFieldsSchema.superRefine(
+  validateSessionTimeOrder,
+);
+
+export const updateTrainingSessionSchema = trainingSessionFieldsSchema
+  .partial()
+  .superRefine((input, ctx) => {
+    validateSessionTimeOrder(input, ctx);
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "At least one field is required",
+  });
+
+export const trainingSessionQuerySchema = z
+  .object({
+    from: z.string().date().optional(),
+    to: z.string().date().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    includeSets: booleanishSchema.default(false),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.from && input.to && input.from > input.to) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: "to must be on or after from",
+      });
+    }
+  });
+
+export const trainingSetLateralitySchema = z.enum(["bilateral", "unilateral"]);
+export const trainingSetSideSchema = z.enum([
+  "both",
+  "left",
+  "right",
+  "alternating",
+]);
+export const trainingWeightBasisSchema = z.enum([
+  "total",
+  "per_side",
+  "per_hand",
+]);
+export const trainingSetTypeSchema = z.enum(["warmup", "working", "drop"]);
+
+const rpeSchema = optionalNullableNumber(z.number().min(0).max(10)).refine(
+  (value) => value === undefined || Number.isInteger(value * 2),
+  "RPE must use 0.5 increments",
+);
+
+const trainingSetBaseSchema = z
+  .object({
+    exerciseOrder: z.coerce.number().int().min(1).max(1000),
+    setNumber: z.coerce.number().int().min(1).max(1000),
+    movementName: z.string().trim().min(1).max(160),
+    equipmentName: optionalTrimmedString(160),
+    equipmentBrand: optionalTrimmedString(120),
+    equipmentModel: optionalTrimmedString(120),
+    laterality: trainingSetLateralitySchema,
+    side: z.preprocess(blankToUndefined, trainingSetSideSchema.optional()),
+    weightKg: optionalNullableNumber(z.number().min(0).max(1500)),
+    weightBasis: trainingWeightBasisSchema,
+    reps: z.preprocess(
+      blankToUndefined,
+      z.coerce.number().int().min(1).max(1000).optional(),
+    ),
+    setType: trainingSetTypeSchema,
+    toFailure: z.boolean().default(false),
+    rpe: rpeSchema,
+    notes: optionalTrimmedString(1000),
+  })
+  .strict();
+
+export const createTrainingSetSchema = trainingSetBaseSchema.superRefine(
+  (input, ctx) => {
+    if (input.laterality === "bilateral" && input.side && input.side !== "both") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Bilateral sets must use side both",
+      });
+    }
+
+    if (input.laterality === "unilateral" && !input.side) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Unilateral sets require left, right, or alternating side",
+      });
+    }
+
+    if (input.laterality === "unilateral" && input.side === "both") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Unilateral sets cannot use side both",
+      });
+    }
+  },
+);
+
+export const createTrainingSetsBatchSchema = z
+  .object({
+    sets: z.array(createTrainingSetSchema).min(1).max(100),
+  })
+  .strict();
+
+export const updateTrainingSetSchema = trainingSetBaseSchema
+  .partial()
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "At least one field is required",
+  })
+  .superRefine((input, ctx) => {
+    if (input.side !== undefined && input.laterality === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["laterality"],
+        message: "laterality is required when side is updated",
+      });
+    }
+
+    if (input.laterality === "bilateral" && input.side && input.side !== "both") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Bilateral sets must use side both",
+      });
+    }
+
+    if (input.laterality === "unilateral" && input.side === "both") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Unilateral sets cannot use side both",
+      });
+    }
+
+    if (input.laterality === "unilateral" && !input.side) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["side"],
+        message: "Unilateral updates require left, right, or alternating side",
+      });
+    }
+  });
+
+export const trainingLogSchema = createTrainingSessionSchema;
 
 export const dailyTaskTypeSchema = z.enum([
   "weight_log",

@@ -51,11 +51,15 @@ type TrainingLogRow = {
   id: string;
   patient_id: string;
   trained_on: string;
+  started_at: string | null;
+  ended_at: string | null;
+  gym_name: string | null;
   activity_type: string;
   duration_minutes: number | string | null;
   intensity: TrainingLog["intensity"];
   notes: string | null;
   created_at: string;
+  updated_at?: string;
 };
 
 type CoachSource = {
@@ -149,11 +153,15 @@ function mapTrainingLogRow(row: TrainingLogRow): TrainingLog {
     id: row.id,
     userId: row.patient_id,
     trainedOn: row.trained_on,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    gymName: row.gym_name,
     activityType: row.activity_type,
     durationMinutes: toNumber(row.duration_minutes),
     intensity: row.intensity,
     notes: row.notes,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -325,7 +333,7 @@ async function getRecentTrainingLogsForCurrentUser(): Promise<TrainingLog[]> {
 
   const { data } = await supabase
     .from("training_logs")
-    .select("id,patient_id,trained_on,activity_type,duration_minutes,intensity,notes,created_at")
+    .select("id,patient_id,trained_on,started_at,ended_at,gym_name,activity_type,duration_minutes,intensity,notes,created_at,updated_at")
     .eq("patient_id", user.id)
     .gte("trained_on", start)
     .order("trained_on", { ascending: false });

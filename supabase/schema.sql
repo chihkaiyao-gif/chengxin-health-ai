@@ -165,12 +165,45 @@ create table if not exists public.training_logs (
   id uuid primary key default gen_random_uuid(),
   patient_id uuid not null references public.profiles(id) on delete cascade,
   trained_on date not null,
-  activity_type text not null,
+  started_at timestamptz,
+  ended_at timestamptz,
+  gym_name text check (gym_name is null or char_length(btrim(gym_name)) between 1 and 160),
+  activity_type text not null check (char_length(btrim(activity_type)) between 1 and 160),
   duration_minutes int not null check (duration_minutes between 1 and 600),
   intensity public.exercise_intensity not null,
   notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint training_logs_time_order_check check (started_at is null or ended_at is null or ended_at >= started_at)
+);
+
+create table if not exists public.training_sets (
+  id uuid primary key default gen_random_uuid(),
+  training_log_id uuid not null references public.training_logs(id) on delete cascade,
+  exercise_order integer not null check (exercise_order >= 1),
+  set_number integer not null check (set_number >= 1),
+  movement_name text not null check (char_length(btrim(movement_name)) between 1 and 160),
+  equipment_name text check (equipment_name is null or char_length(btrim(equipment_name)) between 1 and 160),
+  equipment_brand text check (equipment_brand is null or char_length(btrim(equipment_brand)) between 1 and 120),
+  equipment_model text check (equipment_model is null or char_length(btrim(equipment_model)) between 1 and 120),
+  laterality text not null check (laterality in ('bilateral', 'unilateral')),
+  side text check (side is null or side in ('both', 'left', 'right', 'alternating')),
+  weight_kg numeric(7,2) check (weight_kg is null or (weight_kg >= 0 and weight_kg <= 1500)),
+  weight_basis text not null check (weight_basis in ('total', 'per_side', 'per_hand')),
+  reps integer check (reps is null or (reps >= 1 and reps <= 1000)),
+  set_type text not null check (set_type in ('warmup', 'working', 'drop')),
+  to_failure boolean not null default false,
+  rpe numeric(3,1) check (
+    rpe is null
+    or (rpe >= 0 and rpe <= 10 and mod((rpe * 10)::numeric, 5) = 0)
+  ),
+  notes text check (notes is null or char_length(notes) <= 1000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint training_sets_laterality_side_check check (
+    (laterality = 'bilateral' and coalesce(side, 'both') = 'both')
+    or (laterality = 'unilateral' and side in ('left', 'right', 'alternating'))
+  )
 );
 
 create table if not exists public.meal_logs (
@@ -437,6 +470,7 @@ alter table public.health_assessments enable row level security;
 alter table public.assessment_answers enable row level security;
 alter table public.assessment_results enable row level security;
 alter table public.training_logs enable row level security;
+alter table public.training_sets enable row level security;
 alter table public.meal_logs enable row level security;
 alter table public.food_logs enable row level security;
 alter table public.food_photo_analyses enable row level security;
@@ -466,6 +500,8 @@ drop policy if exists "assessment_results_patient_crud" on public.assessment_res
 drop policy if exists "assessment_results_care_team_select" on public.assessment_results;
 drop policy if exists "training_logs_patient_crud" on public.training_logs;
 drop policy if exists "training_logs_care_team_select" on public.training_logs;
+drop policy if exists "Patients can manage own training sets" on public.training_sets;
+drop policy if exists "Care team can view patient training sets" on public.training_sets;
 drop policy if exists "meal_logs_patient_crud" on public.meal_logs;
 drop policy if exists "meal_logs_care_team_select" on public.meal_logs;
 drop policy if exists "food_logs_patient_crud" on public.food_logs;
@@ -604,6 +640,38 @@ create policy "training_logs_care_team_select"
 on public.training_logs for select
 to authenticated
 using (public.can_access_patient(patient_id));
+
+create policy "Patients can manage own training sets"
+on public.training_sets for all
+to authenticated
+using (
+  exists (
+    select 1
+    from public.training_logs
+    where training_logs.id = training_sets.training_log_id
+      and training_logs.patient_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.training_logs
+    where training_logs.id = training_sets.training_log_id
+      and training_logs.patient_id = auth.uid()
+  )
+);
+
+create policy "Care team can view patient training sets"
+on public.training_sets for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.training_logs
+    where training_logs.id = training_sets.training_log_id
+      and public.can_access_patient(training_logs.patient_id)
+  )
+);
 
 create policy "meal_logs_patient_crud"
 on public.meal_logs for all
@@ -857,6 +925,10 @@ create index if not exists patient_clinic_links_patient_idx on public.patient_cl
 create index if not exists assessment_results_user_completed_idx on public.assessment_results(user_id, completed_at desc);
 create index if not exists assessment_answers_user_completed_idx on public.assessment_answers(user_id, completed_at desc);
 create index if not exists training_logs_patient_date_idx on public.training_logs(patient_id, trained_on desc);
+create index if not exists training_logs_patient_started_idx on public.training_logs(patient_id, started_at desc);
+create index if not exists training_sets_log_order_idx on public.training_sets(training_log_id, exercise_order, set_number);
+create index if not exists training_sets_log_idx on public.training_sets(training_log_id);
+create index if not exists training_sets_movement_name_idx on public.training_sets(movement_name);
 create index if not exists meal_logs_patient_time_idx on public.meal_logs(patient_id, eaten_at desc);
 create index if not exists food_logs_user_eaten_idx on public.food_logs(user_id, eaten_at desc);
 create index if not exists food_photo_analyses_user_created_idx on public.food_photo_analyses(user_id, created_at desc);

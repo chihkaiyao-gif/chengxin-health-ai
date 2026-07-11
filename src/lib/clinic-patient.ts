@@ -48,7 +48,7 @@ const foodLogSelect =
   "id,user_id,meal_type,meal_name,calories_kcal,protein_g,carbs_g,fat_g,fiber_g,sodium_mg,source,note,eaten_at,created_at";
 
 const trainingLogSelect =
-  "id,patient_id,trained_on,activity_type,duration_minutes,intensity,notes,created_at";
+  "id,patient_id,trained_on,started_at,ended_at,gym_name,activity_type,duration_minutes,intensity,notes,created_at,updated_at";
 
 const clinicVisitReportSelect =
   "id,patient_id,generated_by,report_period_start,report_period_end,ai_summary,plain_text_summary,created_at";
@@ -74,11 +74,15 @@ type TrainingLogRow = {
   id: string;
   patient_id: string;
   trained_on: string;
+  started_at: string | null;
+  ended_at: string | null;
+  gym_name: string | null;
   activity_type: string;
   duration_minutes: number | string | null;
   intensity: TrainingLog["intensity"];
   notes: string | null;
   created_at: string;
+  updated_at?: string;
 };
 
 type ClinicVisitReportRow = {
@@ -159,11 +163,15 @@ function mapTrainingLogRow(row: TrainingLogRow): TrainingLog {
     id: row.id,
     userId: row.patient_id,
     trainedOn: row.trained_on,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    gymName: row.gym_name,
     activityType: row.activity_type,
     durationMinutes: toNumber(row.duration_minutes),
     intensity: row.intensity,
     notes: row.notes,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
