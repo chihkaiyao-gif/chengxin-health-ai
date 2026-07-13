@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeEquipmentLabel } from "@/lib/normalization";
 
 export const assessmentGoalSchema = z.enum([
   "weight_loss",
@@ -127,6 +128,16 @@ const optionalTrimmedString = (maxLength: number) =>
     z.string().trim().min(1).max(maxLength).optional(),
   );
 
+const optionalUuidString = z.preprocess(
+  blankToUndefined,
+  z.string().uuid().optional(),
+);
+
+const optionalNullableUuidString = z.preprocess(
+  blankToUndefined,
+  z.string().uuid().nullable().optional(),
+);
+
 const optionalIsoDateTime = z.preprocess(
   blankToUndefined,
   z.string().datetime({ offset: true }).optional(),
@@ -151,6 +162,7 @@ const trainingSessionFieldsSchema = z
   .object({
     startedAt: optionalIsoDateTime,
     endedAt: optionalIsoDateTime,
+    gymProfileId: optionalNullableUuidString,
     gymName: optionalTrimmedString(160),
     activityType: z
       .preprocess(blankToUndefined, z.string().trim().min(1).max(160).optional())
@@ -229,6 +241,7 @@ export const trainingHistoryRecentQuerySchema = z
 
 export const trainingLastPerformanceQuerySchema = z
   .object({
+    equipmentProfileId: optionalNullableUuidString,
     movementName: z.string().trim().min(1).max(160),
     equipmentBrand: optionalTrimmedString(120),
     equipmentName: optionalTrimmedString(160),
@@ -260,16 +273,17 @@ const rpeSchema = optionalNullableNumber(z.number().min(0).max(10)).refine(
 
 const trainingSetBaseSchema = z
   .object({
+    equipmentProfileId: optionalNullableUuidString,
     exerciseOrder: z.coerce.number().int().min(1).max(1000),
     setNumber: z.coerce.number().int().min(1).max(1000),
-    movementName: z.string().trim().min(1).max(160),
+    movementName: optionalTrimmedString(160),
     equipmentName: optionalTrimmedString(160),
     equipmentBrand: optionalTrimmedString(120),
     equipmentModel: optionalTrimmedString(120),
-    laterality: trainingSetLateralitySchema,
+    laterality: trainingSetLateralitySchema.optional(),
     side: z.preprocess(blankToUndefined, trainingSetSideSchema.optional()),
     weightKg: optionalNullableNumber(z.number().min(0).max(1500)),
-    weightBasis: trainingWeightBasisSchema,
+    weightBasis: trainingWeightBasisSchema.optional(),
     reps: z.preprocess(
       blankToUndefined,
       z.coerce.number().int().min(1).max(1000).optional(),
@@ -283,6 +297,30 @@ const trainingSetBaseSchema = z
 
 export const createTrainingSetSchema = trainingSetBaseSchema.superRefine(
   (input, ctx) => {
+    if (!input.equipmentProfileId && !input.movementName) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["movementName"],
+        message: "movementName is required when equipmentProfileId is not provided",
+      });
+    }
+
+    if (!input.equipmentProfileId && !input.laterality) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["laterality"],
+        message: "laterality is required when equipmentProfileId is not provided",
+      });
+    }
+
+    if (!input.equipmentProfileId && !input.weightBasis) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["weightBasis"],
+        message: "weightBasis is required when equipmentProfileId is not provided",
+      });
+    }
+
     if (input.laterality === "bilateral" && input.side && input.side !== "both") {
       ctx.addIssue({
         code: "custom",
@@ -353,6 +391,95 @@ export const updateTrainingSetSchema = trainingSetBaseSchema
       });
     }
   });
+
+const equipmentNormalizedText = (maxLength: number) =>
+  z.string().trim().min(1).max(maxLength).transform(normalizeEquipmentLabel);
+
+export const gymProfileInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    branchName: optionalTrimmedString(120),
+    locationText: optionalTrimmedString(300),
+  })
+  .strict();
+
+export const updateGymProfileSchema = gymProfileInputSchema.partial().refine(
+  (input) => Object.keys(input).length > 0,
+  { message: "At least one field is required" },
+);
+
+export const gymProfileQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+
+export const equipmentProfileInputSchema = z
+  .object({
+    gymProfileId: optionalNullableUuidString,
+    canonicalName: z.string().trim().min(1).max(160),
+    brand: optionalTrimmedString(120),
+    model: optionalTrimmedString(120),
+    defaultMovementName: optionalTrimmedString(160),
+    defaultLaterality: trainingSetLateralitySchema.optional(),
+    defaultWeightBasis: trainingWeightBasisSchema.optional(),
+    seatSetting: optionalTrimmedString(100),
+    padSetting: optionalTrimmedString(100),
+    handleSetting: optionalTrimmedString(100),
+    notes: optionalTrimmedString(1000),
+  })
+  .strict();
+
+export const updateEquipmentProfileSchema = equipmentProfileInputSchema
+  .partial()
+  .extend({
+    defaultLaterality: trainingSetLateralitySchema.nullable().optional(),
+    defaultWeightBasis: trainingWeightBasisSchema.nullable().optional(),
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "At least one field is required",
+  });
+
+export const equipmentProfileQuerySchema = z
+  .object({
+    gymProfileId: optionalUuidString,
+    includeAliases: booleanishSchema.default(false),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+
+export const equipmentAliasInputSchema = z
+  .object({
+    alias: z.string().trim().min(1).max(160),
+  })
+  .strict();
+
+export const equipmentResolveQuerySchema = z
+  .object({
+    alias: z.string().trim().min(1).max(160),
+    gymProfileId: optionalUuidString,
+  })
+  .strict();
+
+export const equipmentLegacyCandidatesQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .strict();
+
+export const linkTrainingSetsToEquipmentSchema = z
+  .object({
+    trainingSetIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(100)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "Training set IDs must be unique",
+      }),
+  })
+  .strict();
+
+export const normalizedEquipmentLabelSchema = equipmentNormalizedText(160);
 
 export const trainingLogSchema = createTrainingSessionSchema;
 

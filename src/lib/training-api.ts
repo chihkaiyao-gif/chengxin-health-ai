@@ -13,6 +13,7 @@ import {
   listTrainingSets,
   TrainingNotFoundError,
   TrainingStorageError,
+  TrainingValidationError,
   updateTrainingSession,
   updateTrainingSet,
   type SupabaseTrainingClient,
@@ -92,6 +93,10 @@ function handleTrainingError(error: unknown) {
 
   if (error instanceof TrainingStorageError) {
     return apiError("SERVER_ERROR", "訓練資料儲存失敗，請稍後再試。", 500);
+  }
+
+  if (error instanceof TrainingValidationError) {
+    return apiError("VALIDATION_ERROR", error.message, 422);
   }
 
   return apiError("SERVER_ERROR", "訓練資料處理失敗，請稍後再試。", 500);

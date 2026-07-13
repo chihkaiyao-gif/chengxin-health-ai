@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | "FORBIDDEN"
   | "VALIDATION_ERROR"
   | "NOT_FOUND"
+  | "CONFLICT"
   | "USAGE_LIMIT_EXCEEDED"
   | "NOT_IMPLEMENTED"
   | "SERVER_ERROR";
@@ -270,6 +271,7 @@ export type TrainingLog = {
   trainedOn: string;
   startedAt?: string | null;
   endedAt?: string | null;
+  gymProfileId?: string | null;
   gymName?: string | null;
   activityType: string;
   durationMinutes: number;
@@ -288,6 +290,7 @@ export type TrainingSetType = "warmup" | "working" | "drop";
 export type TrainingSet = {
   id: string;
   trainingLogId: string;
+  equipmentProfileId: string | null;
   exerciseOrder: number;
   setNumber: number;
   movementName: string;
@@ -308,6 +311,7 @@ export type TrainingSet = {
 };
 
 export type TrainingEquipmentSignature = {
+  equipmentProfileId?: string | null;
   gymName: string | null;
   movementName: string;
   equipmentBrand: string | null;
@@ -334,6 +338,7 @@ export type TrainingSetCopyDraft = {
   exerciseOrder: string;
   setNumber: string;
   movementName: string;
+  equipmentProfileId?: string | null;
   equipmentBrand: string;
   equipmentName: string;
   equipmentModel: string;
@@ -346,6 +351,59 @@ export type TrainingSetCopyDraft = {
   toFailure: boolean;
   rpe: string;
   notes: string;
+};
+
+export type GymProfile = {
+  id: string;
+  ownerId: string;
+  name: string;
+  normalizedName: string;
+  branchName: string | null;
+  normalizedBranchName: string | null;
+  locationText: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EquipmentProfile = {
+  id: string;
+  ownerId: string;
+  gymProfileId: string | null;
+  canonicalName: string;
+  normalizedName: string;
+  brand: string | null;
+  model: string | null;
+  defaultMovementName: string | null;
+  defaultLaterality: TrainingLaterality | null;
+  defaultWeightBasis: TrainingWeightBasis | null;
+  seatSetting: string | null;
+  padSetting: string | null;
+  handleSetting: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  aliases?: EquipmentAlias[];
+  gym?: GymProfile | null;
+};
+
+export type EquipmentAlias = {
+  id: string;
+  ownerId: string;
+  equipmentProfileId: string;
+  alias: string;
+  normalizedAlias: string;
+  createdAt: string;
+};
+
+export type EquipmentResolveResult = {
+  match: EquipmentProfile | null;
+  candidates: EquipmentProfile[];
+  ambiguous: boolean;
+};
+
+export type EquipmentLegacyCandidate = {
+  trainingSet: TrainingSet;
+  trainingLog: TrainingLog;
 };
 
 export type EngagementMetric = {

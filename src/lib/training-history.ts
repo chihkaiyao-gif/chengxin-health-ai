@@ -61,6 +61,7 @@ function signatureFromQuery(
   query: TrainingLastPerformanceQueryInput,
 ): TrainingEquipmentSignature {
   return {
+    equipmentProfileId: query.equipmentProfileId ?? null,
     gymName: nullableTrimmed(query.gymName),
     movementName: query.movementName.trim(),
     equipmentBrand: nullableTrimmed(query.equipmentBrand),
@@ -76,6 +77,15 @@ function setMatchesSignature(
   log: TrainingLog,
   signature: TrainingEquipmentSignature,
 ) {
+  if (signature.equipmentProfileId) {
+    return (
+      set.equipmentProfileId === signature.equipmentProfileId &&
+      set.movementName.trim() === signature.movementName &&
+      set.laterality === signature.laterality &&
+      set.weightBasis === signature.weightBasis
+    );
+  }
+
   return (
     nullableTrimmed(log.gymName) === signature.gymName &&
     set.movementName.trim() === signature.movementName &&
@@ -183,6 +193,7 @@ export function copyTrainingSetsToDrafts(
     exerciseOrder: String(set.exerciseOrder),
     setNumber: String(set.setNumber),
     movementName: set.movementName,
+    equipmentProfileId: set.equipmentProfileId,
     equipmentBrand: set.equipmentBrand ?? "",
     equipmentName: set.equipmentName ?? "",
     equipmentModel: set.equipmentModel ?? "",

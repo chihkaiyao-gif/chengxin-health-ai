@@ -6,6 +6,12 @@ import type {
   TrainingSet,
   TrainingSetSide,
 } from "@/lib/types";
+import {
+  equipmentSnapshotFromProfile,
+  formatGymSnapshot,
+  type EquipmentProfileRow,
+  type GymProfileRow,
+} from "@/lib/equipment-profiles";
 import type {
   createTrainingSessionSchema,
   createTrainingSetSchema,
@@ -32,6 +38,7 @@ export type TrainingLogRow = {
   trained_on: string;
   started_at: string | null;
   ended_at: string | null;
+  gym_profile_id: string | null;
   gym_name: string | null;
   activity_type: string;
   duration_minutes: number;
@@ -44,6 +51,7 @@ export type TrainingLogRow = {
 export type TrainingSetRow = {
   id: string;
   training_log_id: string;
+  equipment_profile_id: string | null;
   exercise_order: number;
   set_number: number;
   movement_name: string;
@@ -106,7 +114,9 @@ export type TrainingStore = {
     row: Partial<Omit<TrainingLogRow, "id" | "patient_id" | "created_at">>,
   ): StoreResult<TrainingLogRow>;
   deleteSession(id: string, patientId: string): StoreResult<{ id: string }>;
-  findSessionForOwner(id: string, patientId: string): StoreResult<Pick<TrainingLogRow, "id" | "patient_id">>;
+  findSessionForOwner(id: string, patientId: string): StoreResult<TrainingLogRow>;
+  findGymProfileForOwner(id: string, patientId: string): StoreResult<GymProfileRow>;
+  findEquipmentProfileForOwner(id: string, patientId: string): StoreResult<EquipmentProfileRow>;
   createSets(
     rows: Array<Omit<TrainingSetRow, "id" | "created_at" | "updated_at">>,
   ): StoreResult<TrainingSetRow[]>;
@@ -132,6 +142,13 @@ export class TrainingStorageError extends Error {
   }
 }
 
+export class TrainingValidationError extends Error {
+  constructor(message = "訓練資料格式不正確。") {
+    super(message);
+    this.name = "TrainingValidationError";
+  }
+}
+
 export class TrainingNotFoundError extends Error {
   constructor(message = "找不到訓練紀錄") {
     super(message);
@@ -145,6 +162,7 @@ const sessionSelect = [
   "trained_on",
   "started_at",
   "ended_at",
+  "gym_profile_id",
   "gym_name",
   "activity_type",
   "duration_minutes",
@@ -157,6 +175,7 @@ const sessionSelect = [
 const setSelect = [
   "id",
   "training_log_id",
+  "equipment_profile_id",
   "exercise_order",
   "set_number",
   "movement_name",
@@ -201,6 +220,7 @@ export function mapTrainingLogRow(
     trainedOn: row.trained_on,
     startedAt: row.started_at,
     endedAt: row.ended_at,
+    gymProfileId: row.gym_profile_id,
     gymName: row.gym_name,
     activityType: row.activity_type,
     durationMinutes: row.duration_minutes,
@@ -216,6 +236,7 @@ export function mapTrainingSetRow(row: TrainingSetRow): TrainingSet {
   return {
     id: row.id,
     trainingLogId: row.training_log_id,
+    equipmentProfileId: row.equipment_profile_id,
     exerciseOrder: row.exercise_order,
     setNumber: row.set_number,
     movementName: row.movement_name,
@@ -261,18 +282,21 @@ export function buildTrainingSessionInsert(
   input: CreateTrainingSessionInput,
   patientId: string,
   now = new Date(),
+  gymProfile?: GymProfileRow | null,
 ): Omit<TrainingLogRow, "id" | "created_at" | "updated_at"> {
   const startedAt = input.startedAt ?? now.toISOString();
   const trainedOn = input.startedAt
     ? deriveTrainingDate(input.startedAt, now)
     : dateOnlyFromDate(now);
+  const gymName = gymProfile ? formatGymSnapshot(gymProfile) : input.gymName ?? null;
 
   return {
     patient_id: patientId,
     trained_on: trainedOn,
     started_at: startedAt,
     ended_at: input.endedAt ?? null,
-    gym_name: input.gymName ?? null,
+    gym_profile_id: gymProfile?.id ?? input.gymProfileId ?? null,
+    gym_name: gymName,
     activity_type: input.activityType,
     duration_minutes: calculateDurationMinutes({
       startedAt,
@@ -286,6 +310,7 @@ export function buildTrainingSessionInsert(
 
 export function buildTrainingSessionUpdate(
   input: UpdateTrainingSessionInput,
+  gymProfile?: GymProfileRow | null,
 ): Partial<Omit<TrainingLogRow, "id" | "patient_id" | "created_at">> {
   const row: Partial<Omit<TrainingLogRow, "id" | "patient_id" | "created_at">> = {
     updated_at: new Date().toISOString(),
@@ -304,6 +329,11 @@ export function buildTrainingSessionUpdate(
 
   if (input.gymName !== undefined) {
     row.gym_name = input.gymName ?? null;
+  }
+
+  if (input.gymProfileId !== undefined) {
+    row.gym_profile_id = gymProfile?.id ?? input.gymProfileId ?? null;
+    row.gym_name = gymProfile ? formatGymSnapshot(gymProfile) : input.gymName ?? null;
   }
 
   if (input.activityType !== undefined) {
@@ -333,18 +363,63 @@ function normalizeTrainingSide(input: CreateTrainingSetInput | UpdateTrainingSet
   return "side" in input ? input.side ?? null : undefined;
 }
 
+type ResolvedTrainingSetInput = CreateTrainingSetInput & {
+  movementName: string;
+  laterality: TrainingSet["laterality"];
+  weightBasis: TrainingSet["weightBasis"];
+};
+
+function assertResolvedTrainingSetInput(
+  input: CreateTrainingSetInput,
+  profile?: EquipmentProfileRow | null,
+): ResolvedTrainingSetInput {
+  const movementName = input.movementName ?? profile?.default_movement_name ?? null;
+  const laterality = input.laterality ?? profile?.default_laterality ?? null;
+  const weightBasis = input.weightBasis ?? profile?.default_weight_basis ?? null;
+
+  if (!movementName || !laterality || !weightBasis) {
+    throw new TrainingValidationError(
+      "請確認動作名稱、單側/雙側與重量記法皆已填寫。",
+    );
+  }
+
+  return {
+    ...input,
+    movementName,
+    laterality,
+    weightBasis,
+  };
+}
+
+function assertNoGymProfileConflict(
+  session: Pick<TrainingLogRow, "gym_profile_id">,
+  profile: EquipmentProfileRow,
+) {
+  if (
+    session.gym_profile_id &&
+    profile.gym_profile_id &&
+    session.gym_profile_id !== profile.gym_profile_id
+  ) {
+    throw new TrainingValidationError("訓練 session 與器材所屬健身房不一致。");
+  }
+}
+
 export function buildTrainingSetInsert(
   trainingLogId: string,
-  input: CreateTrainingSetInput,
+  input: ResolvedTrainingSetInput,
+  profile?: EquipmentProfileRow | null,
 ): Omit<TrainingSetRow, "id" | "created_at" | "updated_at"> {
+  const snapshot = profile ? equipmentSnapshotFromProfile(profile) : null;
+
   return {
     training_log_id: trainingLogId,
+    equipment_profile_id: profile?.id ?? input.equipmentProfileId ?? null,
     exercise_order: input.exerciseOrder,
     set_number: input.setNumber,
     movement_name: input.movementName,
-    equipment_name: input.equipmentName ?? null,
-    equipment_brand: input.equipmentBrand ?? null,
-    equipment_model: input.equipmentModel ?? null,
+    equipment_name: snapshot?.equipmentName ?? input.equipmentName ?? null,
+    equipment_brand: snapshot?.equipmentBrand ?? input.equipmentBrand ?? null,
+    equipment_model: snapshot?.equipmentModel ?? input.equipmentModel ?? null,
     laterality: input.laterality,
     side: normalizeTrainingSide(input) ?? null,
     weight_kg: input.weightKg ?? null,
@@ -359,6 +434,7 @@ export function buildTrainingSetInsert(
 
 export function buildTrainingSetUpdate(
   input: UpdateTrainingSetInput,
+  profile?: EquipmentProfileRow | null,
 ): Partial<Omit<TrainingSetRow, "id" | "training_log_id" | "created_at">> {
   const row: Partial<Omit<TrainingSetRow, "id" | "training_log_id" | "created_at">> = {
     updated_at: new Date().toISOString(),
@@ -367,9 +443,20 @@ export function buildTrainingSetUpdate(
   if (input.exerciseOrder !== undefined) row.exercise_order = input.exerciseOrder;
   if (input.setNumber !== undefined) row.set_number = input.setNumber;
   if (input.movementName !== undefined) row.movement_name = input.movementName;
-  if (input.equipmentName !== undefined) row.equipment_name = input.equipmentName ?? null;
-  if (input.equipmentBrand !== undefined) row.equipment_brand = input.equipmentBrand ?? null;
-  if (input.equipmentModel !== undefined) row.equipment_model = input.equipmentModel ?? null;
+  if (input.equipmentProfileId !== undefined) {
+    row.equipment_profile_id = profile?.id ?? input.equipmentProfileId ?? null;
+  }
+
+  if (profile) {
+    const snapshot = equipmentSnapshotFromProfile(profile);
+    row.equipment_name = snapshot.equipmentName;
+    row.equipment_brand = snapshot.equipmentBrand;
+    row.equipment_model = snapshot.equipmentModel;
+  } else {
+    if (input.equipmentName !== undefined) row.equipment_name = input.equipmentName ?? null;
+    if (input.equipmentBrand !== undefined) row.equipment_brand = input.equipmentBrand ?? null;
+    if (input.equipmentModel !== undefined) row.equipment_model = input.equipmentModel ?? null;
+  }
   if (input.laterality !== undefined) row.laterality = input.laterality;
   if (input.side !== undefined || input.laterality === "bilateral") {
     row.side = normalizeTrainingSide(input) ?? null;
@@ -407,8 +494,19 @@ export async function createTrainingSession(
   store: TrainingStore,
   now = new Date(),
 ) {
+  let gymProfile: GymProfileRow | null = null;
+
+  if (input.gymProfileId) {
+    const gymResult = await store.findGymProfileForOwner(input.gymProfileId, patientId);
+    gymProfile = assertStoreResult(gymResult);
+
+    if (!gymProfile) {
+      throw new TrainingNotFoundError();
+    }
+  }
+
   const result = await store.createSession(
-    buildTrainingSessionInsert(input, patientId, now),
+    buildTrainingSessionInsert(input, patientId, now, gymProfile),
   );
   const row = assertStoreResult(result);
 
@@ -450,7 +548,22 @@ export async function updateTrainingSession(
   input: UpdateTrainingSessionInput,
   store: TrainingStore,
 ) {
-  const result = await store.updateSession(id, patientId, buildTrainingSessionUpdate(input));
+  let gymProfile: GymProfileRow | null = null;
+
+  if (input.gymProfileId) {
+    const gymResult = await store.findGymProfileForOwner(input.gymProfileId, patientId);
+    gymProfile = assertStoreResult(gymResult);
+
+    if (!gymProfile) {
+      throw new TrainingNotFoundError();
+    }
+  }
+
+  const result = await store.updateSession(
+    id,
+    patientId,
+    buildTrainingSessionUpdate(input, gymProfile),
+  );
   const row = assertStoreResult(result);
 
   if (!row) {
@@ -488,8 +601,43 @@ export async function createTrainingSets(
     throw new TrainingNotFoundError();
   }
 
+  const equipmentProfiles = new Map<string, EquipmentProfileRow | null>();
+  const resolvedInputs = [];
+
+  for (const input of inputs) {
+    let profile: EquipmentProfileRow | null = null;
+
+    if (input.equipmentProfileId) {
+      if (!equipmentProfiles.has(input.equipmentProfileId)) {
+        const profileResult = await store.findEquipmentProfileForOwner(
+          input.equipmentProfileId,
+          patientId,
+        );
+        equipmentProfiles.set(
+          input.equipmentProfileId,
+          assertStoreResult(profileResult),
+        );
+      }
+
+      profile = equipmentProfiles.get(input.equipmentProfileId) ?? null;
+
+      if (!profile) {
+        throw new TrainingNotFoundError();
+      }
+
+      assertNoGymProfileConflict(session, profile);
+    }
+
+    resolvedInputs.push({
+      input: assertResolvedTrainingSetInput(input, profile),
+      profile,
+    });
+  }
+
   const result = await store.createSets(
-    inputs.map((input) => buildTrainingSetInsert(trainingLogId, input)),
+    resolvedInputs.map(({ input, profile }) =>
+      buildTrainingSetInsert(trainingLogId, input, profile),
+    ),
   );
   const rows = assertStoreResult(result) ?? [];
 
@@ -525,7 +673,33 @@ export async function updateTrainingSet(
     throw new TrainingNotFoundError();
   }
 
-  const result = await store.updateSet(setId, buildTrainingSetUpdate(input));
+  let profile: EquipmentProfileRow | null = null;
+
+  if (input.equipmentProfileId) {
+    const profileResult = await store.findEquipmentProfileForOwner(
+      input.equipmentProfileId,
+      patientId,
+    );
+    profile = assertStoreResult(profileResult);
+
+    if (!profile) {
+      throw new TrainingNotFoundError();
+    }
+
+    const sessionResult = await store.findSessionForOwner(
+      ownerRow.training_log_id,
+      patientId,
+    );
+    const session = assertStoreResult(sessionResult);
+
+    if (!session) {
+      throw new TrainingNotFoundError();
+    }
+
+    assertNoGymProfileConflict(session, profile);
+  }
+
+  const result = await store.updateSet(setId, buildTrainingSetUpdate(input, profile));
   const row = assertStoreResult(result);
 
   if (!row) {
@@ -605,14 +779,32 @@ export function createSupabaseTrainingStore(supabase: SupabaseTrainingClient): T
     async findSessionForOwner(id, patientId) {
       const { data, error } = await supabase
         .from("training_logs")
-        .select("id,patient_id")
+        .select(sessionSelect)
         .eq("id", id)
         .eq("patient_id", patientId)
         .maybeSingle();
       return {
-        data: data as Pick<TrainingLogRow, "id" | "patient_id"> | null,
+        data: data as TrainingLogRow | null,
         error,
       };
+    },
+    async findGymProfileForOwner(id, patientId) {
+      const { data, error } = await supabase
+        .from("gym_profiles")
+        .select("id,owner_id,name,normalized_name,branch_name,normalized_branch_name,location_text,created_at,updated_at")
+        .eq("id", id)
+        .eq("owner_id", patientId)
+        .maybeSingle();
+      return { data: data as GymProfileRow | null, error };
+    },
+    async findEquipmentProfileForOwner(id, patientId) {
+      const { data, error } = await supabase
+        .from("equipment_profiles")
+        .select("id,owner_id,gym_profile_id,canonical_name,normalized_name,brand,model,default_movement_name,default_laterality,default_weight_basis,seat_setting,pad_setting,handle_setting,notes,created_at,updated_at")
+        .eq("id", id)
+        .eq("owner_id", patientId)
+        .maybeSingle();
+      return { data: data as EquipmentProfileRow | null, error };
     },
     async createSets(rows) {
       const { data, error } = await supabase
@@ -660,22 +852,29 @@ export function createSupabaseTrainingStore(supabase: SupabaseTrainingClient): T
         .order("created_at", { ascending: false })
         .limit(limit);
 
-      builder = applyNullableFilter(builder, "gym_name", signature.gymName);
-      builder = applyNullableFilter(
-        builder,
-        "training_sets.equipment_brand",
-        signature.equipmentBrand,
-      );
-      builder = applyNullableFilter(
-        builder,
-        "training_sets.equipment_name",
-        signature.equipmentName,
-      );
-      builder = applyNullableFilter(
-        builder,
-        "training_sets.equipment_model",
-        signature.equipmentModel,
-      );
+      if (signature.equipmentProfileId) {
+        builder = builder.eq(
+          "training_sets.equipment_profile_id",
+          signature.equipmentProfileId,
+        );
+      } else {
+        builder = applyNullableFilter(builder, "gym_name", signature.gymName);
+        builder = applyNullableFilter(
+          builder,
+          "training_sets.equipment_brand",
+          signature.equipmentBrand,
+        );
+        builder = applyNullableFilter(
+          builder,
+          "training_sets.equipment_name",
+          signature.equipmentName,
+        );
+        builder = applyNullableFilter(
+          builder,
+          "training_sets.equipment_model",
+          signature.equipmentModel,
+        );
+      }
 
       const { data, error } = await builder;
       return { data: data as TrainingLogWithSetRows[] | null, error };
@@ -733,6 +932,7 @@ export function demoTrainingSession(now = new Date()): TrainingLog {
     trainedOn: dateOnlyFromDate(now),
     startedAt: now.toISOString(),
     endedAt: null,
+    gymProfileId: "demo-gym-profile",
     gymName: "Demo Gym",
     activityType: "strength_training",
     durationMinutes: 1,
@@ -750,6 +950,7 @@ export function demoTrainingSet(trainingLogId = "demo-training-session"): Traini
   return {
     id: "demo-training-set",
     trainingLogId,
+    equipmentProfileId: "demo-equipment-profile",
     exerciseOrder: 1,
     setNumber: 1,
     movementName: "Hammer Strength ILWPD",

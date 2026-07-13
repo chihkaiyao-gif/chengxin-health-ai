@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -17,8 +18,10 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Search,
   Square,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { MedicalNotice } from "@/components/medical-notice";
@@ -28,8 +31,19 @@ import {
   StatCard,
 } from "@/components/premium-ui";
 import { SectionCard } from "@/components/section-card";
+import {
+  applyEquipmentProfileDefaults,
+  buildEquipmentResolverState,
+  confirmEquipmentResolverCandidate,
+  createAsyncActionLock,
+  idleEquipmentResolverState,
+  type EquipmentResolverState,
+} from "@/lib/equipment-profile-ui";
 import { copyTrainingSetsToDrafts } from "@/lib/training-history";
 import type {
+  EquipmentProfile,
+  EquipmentResolveResult,
+  GymProfile,
   TrainingLastPerformance,
   TrainingLog,
   TrainingSet,
@@ -66,7 +80,23 @@ type LastPerformanceResponse = {
   lastPerformance: TrainingLastPerformance | null;
 };
 
+type GymProfilesResponse = {
+  persisted: boolean;
+  gyms: GymProfile[];
+};
+
+type EquipmentProfilesResponse = {
+  persisted: boolean;
+  equipmentProfiles: EquipmentProfile[];
+};
+
+type EquipmentResolveResponse = {
+  persisted: boolean;
+  result: EquipmentResolveResult;
+};
+
 type TrainingSetDraft = {
+  equipmentProfileId: string;
   exerciseOrder: string;
   movementName: string;
   equipmentBrand: string;
@@ -86,6 +116,7 @@ type TrainingSetDraft = {
 
 type TrainingHistorySignatureDraft = Pick<
   TrainingSetDraft,
+  | "equipmentProfileId"
   | "movementName"
   | "equipmentBrand"
   | "equipmentName"
@@ -95,6 +126,7 @@ type TrainingHistorySignatureDraft = Pick<
 >;
 
 const defaultDraft: TrainingSetDraft = {
+  equipmentProfileId: "",
   exerciseOrder: "1",
   movementName: "Hammer Strength ILWPD",
   equipmentBrand: "Hammer Strength",
@@ -164,10 +196,13 @@ function buildLastPerformancePath(
     laterality: draft.laterality,
     weightBasis: draft.weightBasis,
   });
-  appendParam(params, "equipmentBrand", draft.equipmentBrand);
-  appendParam(params, "equipmentName", draft.equipmentName);
-  appendParam(params, "equipmentModel", draft.equipmentModel);
-  appendParam(params, "gymName", currentGymName);
+  appendParam(params, "equipmentProfileId", draft.equipmentProfileId);
+  if (!draft.equipmentProfileId) {
+    appendParam(params, "equipmentBrand", draft.equipmentBrand);
+    appendParam(params, "equipmentName", draft.equipmentName);
+    appendParam(params, "equipmentModel", draft.equipmentModel);
+    appendParam(params, "gymName", currentGymName);
+  }
   return `/api/training-history/last-performance?${params.toString()}`;
 }
 
@@ -212,6 +247,7 @@ function formatSetSummary(set: TrainingSet) {
 
 function copiedDraftToPayload(draft: TrainingSetCopyDraft) {
   return {
+    equipmentProfileId: draft.equipmentProfileId || undefined,
     exerciseOrder: Number(draft.exerciseOrder),
     setNumber: Number(draft.setNumber),
     movementName: draft.movementName,
@@ -232,8 +268,14 @@ function copiedDraftToPayload(draft: TrainingSetCopyDraft) {
 export function TrainingLogWorkspace() {
   const [session, setSession] = useState<TrainingLog | null>(null);
   const [sets, setSets] = useState<TrainingSet[]>([]);
+  const [gyms, setGyms] = useState<GymProfile[]>([]);
+  const [equipmentProfiles, setEquipmentProfiles] = useState<EquipmentProfile[]>([]);
+  const [gymProfileId, setGymProfileId] = useState("");
   const [gymName, setGymName] = useState("");
   const [draft, setDraft] = useState<TrainingSetDraft>(defaultDraft);
+  const [equipmentAliasQuery, setEquipmentAliasQuery] = useState("");
+  const [equipmentResolver, setEquipmentResolver] =
+    useState<EquipmentResolverState>(idleEquipmentResolverState);
   const [copiedDrafts, setCopiedDrafts] = useState<TrainingSetCopyDraft[]>([]);
   const [recentLogs, setRecentLogs] = useState<TrainingLog[]>([]);
   const [lastPerformance, setLastPerformance] =
@@ -242,9 +284,11 @@ export function TrainingLogWorkspace() {
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isResolverLoading, setIsResolverLoading] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const resolverLock = useRef(createAsyncActionLock());
 
   const completedSets = sets.length;
   const uniqueMovements = useMemo(
@@ -252,10 +296,14 @@ export function TrainingLogWorkspace() {
     [sets],
   );
   const currentGymName = session?.gymName ?? gymName;
+  const selectedEquipmentProfile = equipmentProfiles.find(
+    (profile) => profile.id === draft.equipmentProfileId,
+  );
   const sessionMinutes = session?.durationMinutes ?? 0;
   const isEnded = Boolean(session?.endedAt);
   const historyDraft = useMemo<TrainingHistorySignatureDraft>(
     () => ({
+      equipmentProfileId: draft.equipmentProfileId,
       movementName: draft.movementName,
       equipmentBrand: draft.equipmentBrand,
       equipmentName: draft.equipmentName,
@@ -265,6 +313,7 @@ export function TrainingLogWorkspace() {
     }),
     [
       draft.movementName,
+      draft.equipmentProfileId,
       draft.equipmentBrand,
       draft.equipmentName,
       draft.equipmentModel,
@@ -339,6 +388,7 @@ export function TrainingLogWorkspace() {
 
         setPersisted(data.persisted);
         setSession(currentSession);
+        setGymProfileId(currentSession?.gymProfileId ?? "");
         setGymName(currentSession?.gymName ?? "");
         setSets(sortSets(currentSession?.sets ?? []));
       } catch (err) {
@@ -360,12 +410,109 @@ export function TrainingLogWorkspace() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function loadProfiles() {
+      try {
+        const [gymsResponse, equipmentResponse] = await Promise.all([
+          fetch("/api/gyms?limit=100", { cache: "no-store" }),
+          fetch("/api/equipment-profiles?includeAliases=true&limit=100", {
+            cache: "no-store",
+          }),
+        ]);
+        const gymsData = await readJson<GymProfilesResponse>(gymsResponse);
+        const equipmentData = await readJson<EquipmentProfilesResponse>(equipmentResponse);
+
+        if (!isMounted) return;
+        setPersisted(gymsData.persisted && equipmentData.persisted);
+        setGyms(gymsData.gyms);
+        setEquipmentProfiles(equipmentData.equipmentProfiles);
+      } catch {
+        if (isMounted) {
+          setGyms([]);
+          setEquipmentProfiles([]);
+        }
+      }
+    }
+
+    void loadProfiles();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadLastPerformance();
     }, 450);
 
     return () => window.clearTimeout(timer);
   }, [loadLastPerformance]);
+
+  function applyGymProfile(nextGymProfileId: string) {
+    setGymProfileId(nextGymProfileId);
+    setEquipmentResolver(idleEquipmentResolverState);
+    const gym = gyms.find((item) => item.id === nextGymProfileId);
+    if (gym) {
+      setGymName(gym.branchName ? `${gym.name} - ${gym.branchName}` : gym.name);
+    }
+  }
+
+  function applyEquipmentProfile(nextEquipmentProfileId: string) {
+    const profile = equipmentProfiles.find((item) => item.id === nextEquipmentProfileId);
+
+    if (!profile) {
+      setDraft((current) => ({ ...current, equipmentProfileId: "" }));
+      return;
+    }
+
+    setDraft((current) => applyEquipmentProfileDefaults(current, profile));
+  }
+
+  async function resolveEquipmentAlias() {
+    const alias = equipmentAliasQuery.trim();
+    if (!alias) return;
+
+    await resolverLock.current.run(async () => {
+      setIsResolverLoading(true);
+      setError("");
+      setMessage("");
+
+      try {
+        const params = new URLSearchParams({ alias });
+        if (gymProfileId) params.set("gymProfileId", gymProfileId);
+        const response = await fetch(`/api/equipment-profiles/resolve?${params}`, {
+          cache: "no-store",
+        });
+        const data = await readJson<EquipmentResolveResponse>(response);
+        setPersisted(data.persisted);
+        setEquipmentResolver(buildEquipmentResolverState(data.result));
+      } catch (err) {
+        setEquipmentResolver(idleEquipmentResolverState);
+        setError(err instanceof Error ? err.message : "無法搜尋器材別名。");
+      } finally {
+        setIsResolverLoading(false);
+      }
+    });
+  }
+
+  function selectResolvedEquipment(profile: EquipmentProfile) {
+    const confirmed = confirmEquipmentResolverCandidate(
+      equipmentResolver,
+      profile.id,
+    );
+    if (confirmed.selectedEquipmentProfileId !== profile.id) return;
+
+    setEquipmentResolver(confirmed);
+    setDraft((current) => applyEquipmentProfileDefaults(current, profile));
+    setMessage(`已選擇器材「${profile.canonicalName}」，你仍可調整本次實際值。`);
+  }
+
+  function cancelEquipmentResolution() {
+    setEquipmentResolver(idleEquipmentResolverState);
+    setEquipmentAliasQuery("");
+  }
 
   async function startSession() {
     setIsMutating(true);
@@ -379,7 +526,8 @@ export function TrainingLogWorkspace() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           startedAt,
-          gymName: gymName || undefined,
+          gymProfileId: gymProfileId || undefined,
+          gymName: gymProfileId ? undefined : gymName || undefined,
           activityType: "strength_training",
           durationMinutes: 1,
           intensity: "MEDIUM",
@@ -426,6 +574,7 @@ export function TrainingLogWorkspace() {
         exerciseOrder,
         setNumber: currentMaxSetNumber + index + 1,
         movementName: draft.movementName,
+        equipmentProfileId: draft.equipmentProfileId || undefined,
         equipmentBrand: draft.equipmentBrand || undefined,
         equipmentName: draft.equipmentName || undefined,
         equipmentModel: draft.equipmentModel || undefined,
@@ -625,6 +774,20 @@ export function TrainingLogWorkspace() {
       <div className="grid gap-5 xl:grid-cols-[0.88fr_1.12fr]">
         <SectionCard title="開始訓練" eyebrow="Session">
           <div className="space-y-4">
+            <SelectField
+              id="gymProfileId"
+              label="選擇健身房設定檔"
+              value={gymProfileId}
+              disabled={Boolean(session)}
+              onChange={applyGymProfile}
+              options={[
+                ["", "不使用設定檔"],
+                ...gyms.map((gym) => [
+                  gym.id,
+                  gym.branchName ? `${gym.name} - ${gym.branchName}` : gym.name,
+                ] as [string, string]),
+              ]}
+            />
             <div className="field-stack">
               <label htmlFor="gymName">健身房名稱，可選</label>
               <input
@@ -663,6 +826,147 @@ export function TrainingLogWorkspace() {
 
         <SectionCard title="快速新增組數" eyebrow="Sets">
           <form className="space-y-4" onSubmit={addSets}>
+            <div className="rounded-[var(--chx-radius-card)] border border-[var(--chx-line)] bg-slate-50 p-4">
+              <div className="field-stack">
+                <label htmlFor="equipmentAliasSearch">用器材別名搜尋</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    id="equipmentAliasSearch"
+                    value={equipmentAliasQuery}
+                    maxLength={160}
+                    className="flex-1"
+                    placeholder="輸入精確別名，例如 ILWPD"
+                    onChange={(event) => {
+                      setEquipmentAliasQuery(event.target.value);
+                      setEquipmentResolver(idleEquipmentResolverState);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void resolveEquipmentAlias();
+                      }
+                    }}
+                  />
+                  <PremiumButton
+                    type="button"
+                    icon={Search}
+                    variant="secondary"
+                    disabled={isResolverLoading || !equipmentAliasQuery.trim()}
+                    onClick={resolveEquipmentAlias}
+                  >
+                    {isResolverLoading ? "搜尋中…" : "搜尋別名"}
+                  </PremiumButton>
+                </div>
+                <p className="text-xs leading-5 text-slate-500">
+                  僅做正規化後的精確比對，不做模糊搜尋，也不會自動建立器材或別名。
+                </p>
+              </div>
+
+              {equipmentResolver.status === "none" ? (
+                <div role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  找不到相符器材；系統不會自動建立設定檔。
+                </div>
+              ) : null}
+
+              {equipmentResolver.status === "single" ||
+              equipmentResolver.status === "ambiguous" ? (
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-950">
+                        請確認要使用的器材
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        {equipmentResolver.status === "ambiguous"
+                          ? "找到多個同別名候選，請依健身房與型號選擇；不會自動選第一個。"
+                          : "找到一個精確候選，確認後才會帶入設定。"}
+                      </p>
+                    </div>
+                    <PremiumButton
+                      type="button"
+                      icon={X}
+                      variant="ghost"
+                      onClick={cancelEquipmentResolution}
+                    >
+                      取消選擇
+                    </PremiumButton>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {equipmentResolver.candidates.map((profile) => {
+                      const gymLabel = profile.gym
+                        ? profile.gym.branchName
+                          ? `${profile.gym.name} - ${profile.gym.branchName}`
+                          : profile.gym.name
+                        : "未指定健身房";
+                      const selected =
+                        equipmentResolver.selectedEquipmentProfileId === profile.id;
+
+                      return (
+                        <article
+                          key={profile.id}
+                          className="rounded-[var(--chx-radius-card)] border border-slate-200 bg-white p-3"
+                        >
+                          <p className="break-words font-semibold text-slate-950">
+                            {profile.canonicalName}
+                          </p>
+                          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-slate-600">
+                            <dt className="font-medium text-slate-500">健身房</dt>
+                            <dd className="break-words">{gymLabel}</dd>
+                            <dt className="font-medium text-slate-500">品牌</dt>
+                            <dd className="break-words">{profile.brand || "未設定"}</dd>
+                            <dt className="font-medium text-slate-500">型號</dt>
+                            <dd className="break-words">{profile.model || "未設定"}</dd>
+                            <dt className="font-medium text-slate-500">預設動作</dt>
+                            <dd className="break-words">
+                              {profile.defaultMovementName || "未設定"}
+                            </dd>
+                            <dt className="font-medium text-slate-500">重量記法</dt>
+                            <dd>{profile.defaultWeightBasis || "未設定"}</dd>
+                          </dl>
+                          <PremiumButton
+                            type="button"
+                            icon={CheckCircle2}
+                            variant={selected ? "secondary" : "soft"}
+                            className="mt-3"
+                            disabled={selected}
+                            onClick={() => selectResolvedEquipment(profile)}
+                          >
+                            {selected ? "已選擇" : `選擇 ${profile.canonicalName}`}
+                          </PremiumButton>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <SelectField
+              id="equipmentProfileId"
+              label="選擇器材設定檔"
+              value={draft.equipmentProfileId}
+              onChange={applyEquipmentProfile}
+              options={[
+                ["", "不使用設定檔"],
+                ...equipmentProfiles.map((profile) => [
+                  profile.id,
+                  [
+                    profile.gym?.name,
+                    profile.brand,
+                    profile.canonicalName,
+                    profile.model,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                ] as [string, string]),
+              ]}
+            />
+            {selectedEquipmentProfile ? (
+              <div className="rounded-[var(--chx-radius-card)] bg-teal-50 px-4 py-3 text-sm text-teal-900">
+                {[selectedEquipmentProfile.seatSetting, selectedEquipmentProfile.padSetting, selectedEquipmentProfile.handleSetting]
+                  .filter(Boolean)
+                  .join(" · ") || "此器材尚未記錄座椅、胸墊或握把設定。"}
+              </div>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="field-stack">
                 <label htmlFor="movementName">動作名稱</label>

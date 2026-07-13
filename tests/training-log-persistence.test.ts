@@ -23,11 +23,14 @@ import {
   type TrainingSetRow,
   type TrainingStore,
 } from "../src/lib/training";
+import type { EquipmentProfileRow, GymProfileRow } from "../src/lib/equipment-profiles";
 import type { TrainingEquipmentSignature } from "../src/lib/types";
 
 class MemoryTrainingStore implements TrainingStore {
   sessions: TrainingLogRow[] = [];
   sets: TrainingSetRow[] = [];
+  gyms: GymProfileRow[] = [];
+  equipmentProfiles: EquipmentProfileRow[] = [];
   calls = {
     createSession: 0,
     updateSession: 0,
@@ -107,6 +110,24 @@ class MemoryTrainingStore implements TrainingStore {
     };
   }
 
+  async findGymProfileForOwner(id: string, patientId: string) {
+    return {
+      data:
+        this.gyms.find((gym) => gym.id === id && gym.owner_id === patientId) ?? null,
+      error: null,
+    };
+  }
+
+  async findEquipmentProfileForOwner(id: string, patientId: string) {
+    return {
+      data:
+        this.equipmentProfiles.find(
+          (profile) => profile.id === id && profile.owner_id === patientId,
+        ) ?? null,
+      error: null,
+    };
+  }
+
   async createSets(
     rows: Array<Omit<TrainingSetRow, "id" | "created_at" | "updated_at">>,
   ) {
@@ -149,18 +170,29 @@ class MemoryTrainingStore implements TrainingStore {
     };
     const rows: TrainingLogWithSetRows[] = this.sessions
       .filter((session) => session.patient_id === patientId)
-      .filter((session) => nullable(session.gym_name) === signature.gymName)
       .map((session) => ({
         ...session,
         training_sets: this.sets.filter(
-          (set) =>
-            set.training_log_id === session.id &&
-            set.movement_name.trim() === signature.movementName &&
-            nullable(set.equipment_brand) === signature.equipmentBrand &&
-            nullable(set.equipment_name) === signature.equipmentName &&
-            nullable(set.equipment_model) === signature.equipmentModel &&
-            set.laterality === signature.laterality &&
-            set.weight_basis === signature.weightBasis,
+          (set) => {
+            const matchesCore =
+              set.training_log_id === session.id &&
+              set.movement_name.trim() === signature.movementName &&
+              set.laterality === signature.laterality &&
+              set.weight_basis === signature.weightBasis;
+
+            if (!matchesCore) return false;
+
+            if (signature.equipmentProfileId) {
+              return set.equipment_profile_id === signature.equipmentProfileId;
+            }
+
+            return (
+              nullable(session.gym_name) === signature.gymName &&
+              nullable(set.equipment_brand) === signature.equipmentBrand &&
+              nullable(set.equipment_name) === signature.equipmentName &&
+              nullable(set.equipment_model) === signature.equipmentModel
+            );
+          },
         ),
       }))
       .filter((session) => (session.training_sets ?? []).length > 0)
@@ -270,6 +302,53 @@ const validSetPayload = {
   rpe: 8,
 };
 
+const gymAId = "00000000-0000-4000-8000-000000000001";
+const gymBId = "00000000-0000-4000-8000-000000000002";
+const patientBGymId = "00000000-0000-4000-8000-000000000003";
+const equipmentAId = "00000000-0000-4000-8000-000000000101";
+const patientBEquipmentId = "00000000-0000-4000-8000-000000000102";
+const gymBEquipmentId = "00000000-0000-4000-8000-000000000103";
+const equipmentIlcrId = "00000000-0000-4000-8000-000000000104";
+
+function gymRow(id: string, ownerId = "user-1", name = "Gym A"): GymProfileRow {
+  return {
+    id,
+    owner_id: ownerId,
+    name,
+    normalized_name: name.toLowerCase(),
+    branch_name: null,
+    normalized_branch_name: null,
+    location_text: null,
+    created_at: "2026-07-11T08:00:00.000Z",
+    updated_at: "2026-07-11T08:00:00.000Z",
+  };
+}
+
+function equipmentRow(
+  id: string,
+  ownerId = "user-1",
+  gymProfileId: string | null = gymAId,
+): EquipmentProfileRow {
+  return {
+    id,
+    owner_id: ownerId,
+    gym_profile_id: gymProfileId,
+    canonical_name: "Hammer Strength ILCR Chest/Back",
+    normalized_name: "hammer strength ilcr chest/back",
+    brand: "Hammer Strength",
+    model: "ILCR",
+    default_movement_name: "胸推",
+    default_laterality: "bilateral",
+    default_weight_basis: "total",
+    seat_setting: "座椅 4",
+    pad_setting: null,
+    handle_setting: null,
+    notes: null,
+    created_at: "2026-07-11T08:00:00.000Z",
+    updated_at: "2026-07-11T08:00:00.000Z",
+  };
+}
+
 async function createSession(store: MemoryTrainingStore, userId = "user-1") {
   const response = await handleCreateTrainingSession(
     jsonRequest("/api/training-logs", validSessionPayload),
@@ -345,6 +424,40 @@ test("frontend owner fields cannot override training session owner", async () =>
   assert.equal(store.calls.createSession, 0);
 });
 
+test("training session with gymProfileId writes server-owned gym snapshot", async () => {
+  const store = new MemoryTrainingStore();
+  store.gyms.push({ ...gymRow(gymAId), branch_name: "信義店", normalized_branch_name: "信義店" });
+
+  const response = await handleCreateTrainingSession(
+    jsonRequest("/api/training-logs", {
+      ...validSessionPayload,
+      gymProfileId: gymAId,
+      gymName: "Forged Client Gym Name",
+    }),
+    depsFor(store, "user-1"),
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(store.sessions[0].gym_profile_id, gymAId);
+  assert.equal(store.sessions[0].gym_name, "Gym A - 信義店");
+});
+
+test("training session cannot use another user's gym profile", async () => {
+  const store = new MemoryTrainingStore();
+  store.gyms.push(gymRow(patientBGymId, "user-2"));
+
+  const response = await handleCreateTrainingSession(
+    jsonRequest("/api/training-logs", {
+      ...validSessionPayload,
+      gymProfileId: patientBGymId,
+    }),
+    depsFor(store, "user-1"),
+  );
+
+  assert.equal(response.status, 404);
+  assert.equal(store.calls.createSession, 0);
+});
+
 test("training session list only returns own sessions", async () => {
   const store = new MemoryTrainingStore();
   await createSession(store, "user-1");
@@ -407,6 +520,72 @@ test("training sets support single and batch inserts", async () => {
   assert.equal(batch.status, 201);
   assert.equal(store.sets.length, 3);
   assert.equal(Number(store.sets[1].rpe), 8.5);
+});
+
+test("training set with equipmentProfileId uses server profile snapshot and defaults", async () => {
+  const store = new MemoryTrainingStore();
+  store.gyms.push(gymRow(gymAId));
+  store.equipmentProfiles.push(equipmentRow(equipmentAId));
+  const sessionId = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    gymName: "Gym A",
+  });
+  store.sessions[0].gym_profile_id = gymAId;
+
+  const response = await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      equipmentProfileId: equipmentAId,
+      exerciseOrder: 1,
+      setNumber: 1,
+      weightKg: 60,
+      reps: 10,
+      setType: "working",
+      rpe: 8.5,
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(store.sets[0].equipment_profile_id, equipmentAId);
+  assert.equal(store.sets[0].equipment_brand, "Hammer Strength");
+  assert.equal(store.sets[0].equipment_name, "Hammer Strength ILCR Chest/Back");
+  assert.equal(store.sets[0].equipment_model, "ILCR");
+  assert.equal(store.sets[0].movement_name, "胸推");
+  assert.equal(store.sets[0].laterality, "bilateral");
+  assert.equal(store.sets[0].weight_basis, "total");
+});
+
+test("training set rejects equipment profile owned by another user or conflicting gym", async () => {
+  const store = new MemoryTrainingStore();
+  store.gyms.push(gymRow(gymAId), gymRow(gymBId, "user-1", "Gym B"));
+  store.equipmentProfiles.push(
+    equipmentRow(patientBEquipmentId, "user-2", gymAId),
+    equipmentRow(gymBEquipmentId, "user-1", gymBId),
+  );
+  const sessionId = await createSession(store, "user-1");
+  store.sessions[0].gym_profile_id = gymAId;
+
+  const otherOwner = await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      ...validSetPayload,
+      equipmentProfileId: patientBEquipmentId,
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+  const gymConflict = await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      ...validSetPayload,
+      equipmentProfileId: gymBEquipmentId,
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  assert.equal(otherOwner.status, 404);
+  assert.equal(gymConflict.status, 422);
+  assert.equal(store.calls.createSets, 0);
 });
 
 test("training set payload cannot provide parent relationship fields", async () => {
@@ -800,6 +979,72 @@ test("training history does not mix equipment model, weight basis, or laterality
   );
 });
 
+test("training history with equipmentProfileId still separates movement, laterality, and weight basis", async () => {
+  const store = new MemoryTrainingStore();
+  store.equipmentProfiles.push(equipmentRow(equipmentIlcrId, "user-1", null));
+  const sessionId = await createSessionWithPayload(store, "user-1", {
+    ...validSessionPayload,
+    startedAt: "2026-07-11T08:00:00+08:00",
+  });
+
+  await handleCreateTrainingSets(
+    jsonRequest(`/api/training-logs/${sessionId}/sets`, {
+      sets: [
+        {
+          ...validSetPayload,
+          equipmentProfileId: equipmentIlcrId,
+          movementName: "胸推",
+          laterality: "bilateral",
+          side: "both",
+          weightBasis: "total",
+          weightKg: 60,
+        },
+        {
+          ...validSetPayload,
+          setNumber: 2,
+          equipmentProfileId: equipmentIlcrId,
+          movementName: "划船",
+          laterality: "bilateral",
+          side: "both",
+          weightBasis: "total",
+          weightKg: 75,
+        },
+        {
+          ...validSetPayload,
+          setNumber: 3,
+          equipmentProfileId: equipmentIlcrId,
+          movementName: "胸推",
+          laterality: "bilateral",
+          side: "both",
+          weightBasis: "per_side",
+          weightKg: 30,
+        },
+      ],
+    }),
+    sessionId,
+    depsFor(store, "user-1"),
+  );
+
+  const response = await handleLastTrainingPerformance(
+    new Request(
+      `http://127.0.0.1/api/training-history/last-performance?equipmentProfileId=${equipmentIlcrId}&movementName=%E8%83%B8%E6%8E%A8&laterality=bilateral&weightBasis=total`,
+    ),
+    depsFor(store, "user-1"),
+  );
+  const body = await responseJson<{
+    lastPerformance: { sets: Array<{ movementName: string; weightKg: number | null }> } | null;
+  }>(response);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    body.data?.lastPerformance?.sets.map((set) => ({
+      movementName: set.movementName,
+      weightKg: set.weightKg,
+    })),
+    [{ movementName: "胸推", weightKg: 60 }],
+  );
+});
+
 test("training history treats omitted optional signature fields as exact null matches", async () => {
   const store = new MemoryTrainingStore();
   const sessionId = await createSessionWithPayload(store, "user-1", {
@@ -894,6 +1139,7 @@ test("copying last performance creates client-side drafts without old ids or tod
     {
       id: "old-set-id",
       trainingLogId: "old-session",
+      equipmentProfileId: "equipment-1",
       exerciseOrder: 1,
       setNumber: 2,
       movementName: "Hammer Strength ILWPD",
