@@ -1,8 +1,5 @@
 import { apiError, ok } from "@/lib/api-response";
-import {
-  getMissingAiConfigMessage,
-  hasAiProviderConfig,
-} from "@/lib/ai/provider";
+import { hasAiProviderConfig } from "@/lib/ai/provider";
 import { getCurrentUser } from "@/lib/auth";
 import { getTodayCoachInsightForCurrentUser } from "@/lib/ai-coach";
 import { hasSupabaseConfig, isDemoMode } from "@/lib/supabase/server";
@@ -24,7 +21,11 @@ export async function GET() {
   const result = await getTodayCoachInsightForCurrentUser();
 
   if (!isDemoMode() && !hasAiProviderConfig() && !result.persisted) {
-    return apiError("SERVER_ERROR", getMissingAiConfigMessage(), 500);
+    return apiError(
+      "AI_UNAVAILABLE",
+      "AI 服務暫時無法使用，請稍後再試。",
+      503,
+    );
   }
 
   return ok(result);

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isDemoModeEnv } from "@/lib/app-mode";
 
 const protectedPagePrefixes = [
   "/dashboard",
@@ -49,7 +50,7 @@ export async function middleware(request: NextRequest) {
   });
 
   if (
-    process.env.NEXT_PUBLIC_DEMO_MODE === "true" ||
+    isDemoModeEnv() ||
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
   ) {

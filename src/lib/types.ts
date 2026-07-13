@@ -8,11 +8,18 @@ export type UserRole =
   | "viewer"
   | "super_admin";
 
-export type ApiErrorCode =
+export type PublicApiErrorCode =
   | "UNAUTHENTICATED"
   | "FORBIDDEN"
   | "VALIDATION_ERROR"
   | "NOT_FOUND"
+  | "AI_UNAVAILABLE"
+  | "STORAGE_ERROR"
+  | "INTERNAL_ERROR"
+  | "ENDPOINT_RETIRED";
+
+export type ApiErrorCode =
+  | PublicApiErrorCode
   | "CONFLICT"
   | "USAGE_LIMIT_EXCEEDED"
   | "NOT_IMPLEMENTED"
@@ -20,9 +27,8 @@ export type ApiErrorCode =
 
 export type ApiError = {
   error: {
-    code: ApiErrorCode;
+    code: PublicApiErrorCode;
     message: string;
-    details?: unknown;
   };
 };
 

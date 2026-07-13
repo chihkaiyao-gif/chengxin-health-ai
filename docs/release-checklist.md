@@ -10,7 +10,8 @@ Use this checklist before staging demos and every production release.
 - [ ] `npm run smoke` passes against the target deployment URL.
 - [ ] `/api/health` returns 200.
 - [ ] `/api/health` returns `status:"ok"` for staging or production.
-- [ ] No production build depends on `NEXT_PUBLIC_DEMO_MODE=true`.
+- [ ] `APP_MODE=staging` or `APP_MODE=production` is set explicitly; no deployed build uses demo mode.
+- [ ] `/api/health` exposes configuration booleans only, with no env names, provider/model names, project identifier, or secrets.
 
 ## Supabase
 
@@ -22,6 +23,7 @@ Use this checklist before staging demos and every production release.
 - [ ] Storage buckets exist: `meal-photos`, `inbody-scans`, and any public assets bucket.
 - [ ] Supabase Storage policies restrict patient image access.
 - [ ] Auth redirect URLs include local, staging, and production callback URLs.
+- [ ] `SUPABASE_SECRET_KEY` is optional; when absent, normal RLS flows work and admin-only capabilities remain disabled.
 
 ## Demo Accounts
 
@@ -34,7 +36,8 @@ Use this checklist before staging demos and every production release.
 ## AI Gateway And Providers
 
 - [ ] `AI_PROVIDER` is configured for staging and production.
-- [ ] Active provider API key is configured; currently implemented provider is `openai` with `OPENAI_API_KEY`.
+- [ ] `AI_PROVIDER=openai`; unimplemented providers fail safely outside demo mode.
+- [ ] `OPENAI_API_KEY` is configured.
 - [ ] `OPENAI_MODEL` is explicitly set when `AI_PROVIDER=openai`; recommended staging value is `gpt-5.6-terra`.
 - [ ] `OPENAI_FALLBACK_MODEL` is configured to the previous stable model and is only used for retryable model availability, rate limit, 5xx, or network failures.
 - [ ] `/api/health` reports OpenAI model configuration as booleans and does not expose exact model names or API keys.
@@ -56,6 +59,7 @@ Use this checklist before staging demos and every production release.
 - [ ] iOS add-to-home-screen hint is visible when appropriate.
 - [ ] These pages work at 390px width: dashboard, assessment, training, nutrition, inbody, medications, appointments, clinic patients, clinic appointments.
 - [ ] Service worker does not cache sensitive API responses.
+- [ ] Service worker does not cache authenticated navigation HTML and logout purges app caches.
 - [ ] localStorage does not store health records.
 
 ## Legal And Medical Safety

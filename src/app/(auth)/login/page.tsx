@@ -5,6 +5,7 @@ import { signInAction } from "@/app/auth/actions";
 type LoginPageProps = {
   searchParams?: Promise<{
     message?: string;
+    redirectTo?: string;
   }>;
 };
 
@@ -30,6 +31,11 @@ export default async function LoginPage(props: LoginPageProps) {
         ) : null}
 
         <form action={signInAction} className="space-y-4">
+          <input
+            type="hidden"
+            name="redirectTo"
+            value={searchParams?.redirectTo || "/dashboard"}
+          />
           <div className="field-stack">
             <label htmlFor="email">電子郵件</label>
             <input id="email" name="email" type="email" required />

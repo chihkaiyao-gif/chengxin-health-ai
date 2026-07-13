@@ -105,5 +105,5 @@ export async function setAiCache({
     { onConflict: "cache_key" },
   );
 
-  return { persisted: !error, error: error?.message };
+  return { persisted: !error };
 }

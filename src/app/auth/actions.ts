@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { sanitizeRedirectTo } from "@/lib/auth-redirect";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
 
 function encodedMessage(path: string, message: string) {
@@ -10,6 +11,7 @@ function encodedMessage(path: string, message: string) {
 export async function signInAction(formData: FormData) {
   const email = String(formData.get("email") || "");
   const password = String(formData.get("password") || "");
+  const redirectTo = sanitizeRedirectTo(formData.get("redirectTo"));
 
   if (!hasSupabaseConfig()) {
     redirect(encodedMessage("/login", "尚未設定 Supabase 環境變數。"));
@@ -26,7 +28,7 @@ export async function signInAction(formData: FormData) {
     redirect(encodedMessage("/login", "登入失敗，請確認帳號與密碼。"));
   }
 
-  redirect("/dashboard");
+  redirect(redirectTo);
 }
 
 export async function signUpAction(formData: FormData) {

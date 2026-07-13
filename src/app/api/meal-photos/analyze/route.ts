@@ -1,5 +1,5 @@
 import { apiError, ok } from "@/lib/api-response";
-import { analyzeFood, getMissingAiConfigMessage } from "@/lib/ai/provider";
+import { analyzeFood } from "@/lib/ai/provider";
 import { buildAiInputHash } from "@/lib/ai-cache";
 import { logAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
@@ -117,12 +117,12 @@ export async function POST(request: Request) {
       context: parsed.data,
       cacheInput,
     });
-  } catch (error) {
+  } catch {
     if (!isDemoMode()) {
       return apiError(
-        "SERVER_ERROR",
-        error instanceof Error ? error.message : getMissingAiConfigMessage(),
-        500,
+        "AI_UNAVAILABLE",
+        "AI 服務暫時無法使用，請稍後再試。",
+        503,
       );
     }
   }
@@ -166,10 +166,9 @@ export async function POST(request: Request) {
 
   if (uploadError) {
     return apiError(
-      "SERVER_ERROR",
+      "STORAGE_ERROR",
       "餐點照片上傳失敗，請稍後再試。",
-      500,
-      uploadError.message,
+      503,
     );
   }
 

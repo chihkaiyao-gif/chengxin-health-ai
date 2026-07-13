@@ -1,5 +1,5 @@
 import { getAiCache, setAiCache } from "@/lib/ai-cache";
-import { isDemoMode } from "@/lib/supabase/server";
+import { isDemoModeEnv } from "@/lib/app-mode";
 import type {
   AssessmentPersona,
 } from "@/lib/types";
@@ -15,12 +15,10 @@ import {
 } from "@/lib/validation";
 import { foodPrompt } from "@/prompts/food";
 import { inbodyPrompt } from "@/prompts/inbody";
-import { anthropicProvider } from "./anthropic";
-import { deepSeekProvider } from "./deepseek";
-import { geminiProvider } from "./gemini";
 import { openAiProvider } from "./openai";
 
 export type AiProviderName = "openai" | "anthropic" | "gemini" | "deepseek";
+type RuntimeAiProviderName = AiProviderName | "demo";
 export type AiGatewayProviderName = AiProviderName | "ai_cache";
 
 export type AiProviderResult<T> = {
@@ -102,68 +100,68 @@ const providerKeyEnvByName: Record<AiProviderName, string> = {
   deepseek: "DEEPSEEK_API_KEY",
 };
 
-const providers: Record<AiProviderName, AiGatewayProvider> = {
+const providers: Partial<Record<AiProviderName, AiGatewayProvider>> = {
   openai: openAiProvider,
-  anthropic: anthropicProvider,
-  gemini: geminiProvider,
-  deepseek: deepSeekProvider,
 };
 
-export function getAiProviderName(): AiProviderName {
+export function getAiProviderName(): RuntimeAiProviderName {
   const provider = process.env.AI_PROVIDER?.toLowerCase();
 
-  if (
-    provider === "openai" ||
-    provider === "anthropic" ||
-    provider === "gemini" ||
-    provider === "deepseek"
-  ) {
-    return provider;
+  if (isDemoModeEnv() && (!provider || provider === "demo")) {
+    return "demo";
   }
 
-  return "openai";
+  if (!provider || provider === "openai") {
+    return "openai";
+  }
+
+  throw new Error("The configured AI provider is unavailable in this app mode.");
 }
 
 export function getAiProviderKeyEnv(provider = getAiProviderName()) {
-  return providerKeyEnvByName[provider];
+  return provider === "demo" ? null : providerKeyEnvByName[provider];
 }
 
 export function hasAiProviderConfig(provider = getAiProviderName()) {
-  return Boolean(process.env[getAiProviderKeyEnv(provider)]);
+  if (provider === "demo") return isDemoModeEnv();
+  const keyEnv = getAiProviderKeyEnv(provider);
+  return Boolean(keyEnv && process.env[keyEnv]);
 }
 
-export function getMissingAiConfigMessage(provider = getAiProviderName()) {
-  return `正式模式尚未設定 ${getAiProviderKeyEnv(provider)}，無法執行 AI 分析。請先在環境變數設定 ${provider} API key。`;
+export function getMissingAiConfigMessage() {
+  return "AI service is not configured or unavailable.";
 }
 
-export const missingAiConfigMessage = getMissingAiConfigMessage();
+export const missingAiConfigMessage = "AI service is not configured or unavailable.";
 
 export function getAiProviderStatus() {
   const provider = getAiProviderName();
 
   return {
-    aiProvider: provider,
-    aiProviderKeyEnv: getAiProviderKeyEnv(provider),
-    aiConfigured: hasAiProviderConfig(provider),
-    openaiConfigured: hasAiProviderConfig("openai"),
-    anthropicConfigured: hasAiProviderConfig("anthropic"),
-    googleConfigured: hasAiProviderConfig("gemini"),
-    deepseekConfigured: hasAiProviderConfig("deepseek"),
+    providerConfigured: hasAiProviderConfig(provider),
   };
 }
 
 function getConfiguredProvider() {
   const providerName = getAiProviderName();
 
+  if (providerName === "demo") {
+    return null;
+  }
+
   if (!hasAiProviderConfig(providerName)) {
-    if (isDemoMode()) {
+    if (isDemoModeEnv()) {
       return null;
     }
 
-    throw new Error(getMissingAiConfigMessage(providerName));
+    throw new Error(getMissingAiConfigMessage());
   }
 
-  return providers[providerName];
+  const provider = providers[providerName];
+  if (!provider) {
+    throw new Error("The configured AI provider is unavailable in this app mode.");
+  }
+  return provider;
 }
 
 export async function generateText(input: GenerateTextInput) {

@@ -2,45 +2,22 @@ import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { getOpenAiEnvStatus } from "@/lib/ai/openai-model-config";
+import { getAppMode, isDemoModeEnv } from "@/lib/app-mode";
 
 const missingSupabaseConfigMessage =
-  "Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, or set NEXT_PUBLIC_DEMO_MODE=true for local demo fallback.";
+  "Supabase server configuration is unavailable.";
 
 const defaultStorageBuckets = {
   mealPhotos: "meal-photos",
   inbodyScans: "inbody-scans",
 } as const;
 
-type AiProviderName = "openai" | "anthropic" | "gemini" | "deepseek";
-
-const aiProviderKeyEnvByName: Record<AiProviderName, string> = {
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  gemini: "GOOGLE_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-};
-
-function getAiProviderNameForEnv(): AiProviderName {
-  const provider = process.env.AI_PROVIDER?.toLowerCase();
-
-  if (
-    provider === "openai" ||
-    provider === "anthropic" ||
-    provider === "gemini" ||
-    provider === "deepseek"
-  ) {
-    return provider;
-  }
-
-  return "openai";
-}
-
-function getAiProviderKeyEnvForEnv(provider = getAiProviderNameForEnv()) {
-  return aiProviderKeyEnvByName[provider];
+function configuredAiProvider() {
+  return process.env.AI_PROVIDER?.trim().toLowerCase() || "openai";
 }
 
 export function isDemoMode() {
-  return process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  return isDemoModeEnv();
 }
 
 export function hasActualSupabaseConfig() {
@@ -51,6 +28,10 @@ export function hasActualSupabaseConfig() {
 }
 
 export function hasSupabaseConfig() {
+  if (isDemoMode()) {
+    return false;
+  }
+
   const configured = hasActualSupabaseConfig();
 
   if (!configured && !isDemoMode()) {
@@ -61,7 +42,7 @@ export function hasSupabaseConfig() {
 }
 
 export function shouldUseDemoFallback() {
-  return isDemoMode() && !hasActualSupabaseConfig();
+  return isDemoMode();
 }
 
 export function hasOpenAiConfig() {
@@ -69,7 +50,9 @@ export function hasOpenAiConfig() {
 }
 
 export function hasAiProviderConfig() {
-  return Boolean(process.env[getAiProviderKeyEnvForEnv()]);
+  const provider = configuredAiProvider();
+  if (isDemoMode() && provider === "demo") return true;
+  return provider === "openai" && Boolean(process.env.OPENAI_API_KEY);
 }
 
 export function getStorageBucketSettings() {
@@ -109,74 +92,54 @@ export function getCommitSha() {
 }
 
 export function getEnvironmentStatus() {
+  const appMode = getAppMode();
   const demoMode = isDemoMode();
   const supabaseConfigured = hasActualSupabaseConfig();
-  const aiProvider = getAiProviderNameForEnv();
-  const aiProviderKeyEnv = getAiProviderKeyEnvForEnv(aiProvider);
-  const aiConfigured = hasAiProviderConfig();
+  const aiProvider = configuredAiProvider();
+  const aiProviderConfigured = hasAiProviderConfig();
   const openAiStatus = getOpenAiEnvStatus();
-  const openaiConfigured = openAiStatus.openaiProviderConfigured;
   const storageConfigured = hasStorageConfig();
   const storageBucketsConfigured = demoMode
     ? storageConfigured
     : hasExplicitStorageBucketConfig();
   const appVersion = getAppVersion();
-  const commitSha = getCommitSha();
-  const missingRequiredEnv = [
+  const requiredConfigurationMissing = !demoMode && [
     !process.env.NEXT_PUBLIC_APP_URL ? "NEXT_PUBLIC_APP_URL" : null,
-    !demoMode && !process.env.NEXT_PUBLIC_SUPABASE_URL
+    !process.env.NEXT_PUBLIC_SUPABASE_URL
       ? "NEXT_PUBLIC_SUPABASE_URL"
       : null,
-    !demoMode && !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
       ? "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
       : null,
-    !demoMode && !process.env.SUPABASE_SECRET_KEY
-      ? "SUPABASE_SECRET_KEY"
-      : null,
-    !demoMode && !process.env.SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET
+    !process.env.SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET
       ? "SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET"
       : null,
-    !demoMode && !process.env.SUPABASE_STORAGE_INBODY_SCANS_BUCKET
+    !process.env.SUPABASE_STORAGE_INBODY_SCANS_BUCKET
       ? "SUPABASE_STORAGE_INBODY_SCANS_BUCKET"
       : null,
-    !demoMode && !aiConfigured ? aiProviderKeyEnv : null,
-    !demoMode && aiProvider === "openai" && !openAiStatus.openaiModelConfigured
+    !aiProviderConfigured ? "AI_PROVIDER_CONFIGURATION" : null,
+    aiProvider === "openai" && !openAiStatus.openaiModelConfigured
       ? "OPENAI_MODEL"
       : null,
-  ].filter(Boolean) as string[];
+  ].some(Boolean);
 
   return {
-    status: missingRequiredEnv.length > 0 ? "misconfigured" : "ok",
-    environment:
-      process.env.VERCEL_ENV ||
-      process.env.NEXT_PUBLIC_APP_ENV ||
-      process.env.NODE_ENV ||
-      "development",
+    status: requiredConfigurationMissing ? "misconfigured" : "ok",
+    environment: appMode,
     demoMode,
     supabaseConfigured,
     supabasePublishableKeyConfigured: Boolean(
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     ),
-    supabaseSecretKeyConfigured: Boolean(process.env.SUPABASE_SECRET_KEY),
-    aiProvider,
-    aiProviderKeyEnv,
-    aiConfigured,
-    openaiConfigured,
-    openaiProvider: openAiStatus.openaiProvider,
-    openaiProviderConfigured: openAiStatus.openaiProviderConfigured,
+    supabaseAdminConfigured: hasSupabaseAdminCapability(),
+    aiProviderConfigured,
     openaiModelConfigured: openAiStatus.openaiModelConfigured,
     openaiFallbackConfigured: openAiStatus.openaiFallbackConfigured,
-    anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
-    googleConfigured: Boolean(process.env.GOOGLE_API_KEY),
-    deepseekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
     storageConfigured,
     storageBucketsConfigured,
-    storageBuckets: getStorageBucketSettings(),
     version: appVersion,
     appVersion,
-    commitSha,
-    missingRequiredEnv,
-    requiredEnvMissing: missingRequiredEnv,
+    requiredConfigurationMissing,
   };
 }
 
@@ -207,18 +170,26 @@ export async function createClient() {
 }
 
 export function createSecretKeyClient() {
-  if (!hasActualSupabaseConfig() || !process.env.SUPABASE_SECRET_KEY) {
+  if (!hasSupabaseAdminCapability()) {
     return null;
   }
 
   return createSupabaseAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY,
+    process.env.SUPABASE_SECRET_KEY!,
     {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
       },
     },
+  );
+}
+
+export function hasSupabaseAdminCapability() {
+  return Boolean(
+    !isDemoMode() &&
+      hasActualSupabaseConfig() &&
+      process.env.SUPABASE_SECRET_KEY,
   );
 }

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { MobileTabBar } from "@/components/premium-ui";
+import { SecureSignOutForm } from "@/components/secure-sign-out-form";
 
 const patientLinks = [
   { href: "/dashboard", label: "首頁", icon: Home },
@@ -76,12 +77,16 @@ export function AppShell({ children }: AppShellProps) {
               <Building2 className="h-4 w-4" aria-hidden="true" />
               診所端
             </Link>
+            <SecureSignOutForm />
           </div>
 
-          <Link href="/clinic/dashboard" className="btn-secondary md:hidden">
-            <Activity className="h-4 w-4" aria-hidden="true" />
-            診所
-          </Link>
+          <div className="flex items-center gap-2 md:hidden">
+            <Link href="/clinic/dashboard" className="btn-secondary">
+              <Activity className="h-4 w-4" aria-hidden="true" />
+              診所
+            </Link>
+            <SecureSignOutForm />
+          </div>
         </div>
       </header>
 

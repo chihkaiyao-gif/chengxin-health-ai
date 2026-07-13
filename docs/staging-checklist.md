@@ -8,7 +8,7 @@
 - [ ] 確認 project region、名稱與團隊權限。
 - [ ] 複製 staging 專用 `NEXT_PUBLIC_SUPABASE_URL`。
 - [ ] 複製 staging 專用 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`。
-- [ ] 建立 staging 專用 `SUPABASE_SECRET_KEY`，只放在 Vercel server env。
+- [ ] 若要啟用 AI cache，再建立 staging 專用 `SUPABASE_SECRET_KEY` 並只放在 Vercel server env；一般 RLS 流程不需要此 key。
 
 ## 2. Database Migrations
 
@@ -56,12 +56,13 @@
 ## 7. Vercel Environment Variables
 
 - [ ] `NEXT_PUBLIC_APP_URL=https://staging.chengxin.health`
+- [ ] `APP_MODE=staging`
 - [ ] `NEXT_PUBLIC_APP_ENV=staging`
 - [ ] `NEXT_PUBLIC_APP_VERSION=0.1.0`
 - [ ] `NEXT_PUBLIC_DEMO_MODE=false`
 - [ ] `NEXT_PUBLIC_SUPABASE_URL=...`
 - [ ] `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...`
-- [ ] `SUPABASE_SECRET_KEY=...`
+- [ ] Optional：`SUPABASE_SECRET_KEY=...`（只啟用 admin-only capability／AI cache）
 - [ ] `SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos`
 - [ ] `SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans`
 - [ ] `AI_PROVIDER=openai`
@@ -72,14 +73,12 @@
 - [ ] `OPENAI_REASONING_EFFORT_INBODY=low`
 - [ ] `OPENAI_REASONING_EFFORT_COACH=medium`
 - [ ] `OPENAI_REASONING_EFFORT_VISIT_REPORT=medium`
-- [ ] `ANTHROPIC_API_KEY=`（skeleton，除非切換 provider）
-- [ ] `GOOGLE_API_KEY=`（skeleton，除非切換 provider）
-- [ ] `DEEPSEEK_API_KEY=`（skeleton，除非切換 provider）
 - [ ] Optional：LINE / Email / SMS provider keys 保持未啟用或使用 sandbox。
 
 ## 8. AI Gateway 與 AI Safety
 
 - [ ] 設定 staging 專用 `AI_PROVIDER=openai`。
+- [ ] 確認 staging／production 對 `anthropic`、`gemini`、`deepseek`、`demo` provider 均安全失敗，不回假成功。
 - [ ] 設定 `AI_PROVIDER` 對應 API key；目前正式實作為 `OPENAI_API_KEY`。
 - [ ] 設定 `OPENAI_MODEL`；建議 staging 使用 `gpt-5.6-terra`。
 - [ ] 設定 `OPENAI_FALLBACK_MODEL=gpt-5.5`，只用於可重試的模型可用性、429、5xx 或網路錯誤。
@@ -97,10 +96,10 @@
 - [ ] 部署後執行：`SMOKE_BASE_URL=https://staging.chengxin.health npm run smoke`
 - [ ] 確認 `/api/health` 回 200。
 - [ ] 確認 `/api/health` 的 `demoMode=false`。
-- [ ] 確認 `/api/health` 的 `aiConfigured=true`。
-- [ ] 確認 `/api/health` 的 `openaiProviderConfigured=true`。
+- [ ] 確認 `/api/health` 的 `aiProviderConfigured=true`。
 - [ ] 確認 `/api/health` 的 `openaiModelConfigured=true`。
-- [ ] 確認 `requiredEnvMissing=[]`。
+- [ ] 確認 `/api/health` 的 `requiredConfigurationMissing=false`。
+- [ ] 確認 health response 不含 env 名稱、project identifier、model 名稱或 secret 狀態明細。
 - [ ] 確認 `/privacy`、`/terms`、`/medical-disclaimer`、`/support` 回 200。
 
 ## 10. Mobile / PWA
@@ -109,8 +108,9 @@
 - [ ] Android Chrome 開啟 staging。
 - [ ] 測試加入主畫面。
 - [ ] 測試 standalone mode 首頁、飲食、InBody、用藥、回診預約。
-- [ ] 測試離線 fallback。
-- [ ] 確認 service worker 不快取健康資料 API response。
+- [ ] 測試離線時不顯示先前登入者的私人 HTML。
+- [ ] 確認 service worker 不快取 navigation HTML 或任何 `/api/**` response。
+- [ ] 登出後確認 app cache 已清除。
 
 ## 11. Go / No-Go
 

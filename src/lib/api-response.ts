@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sanitizePublicError } from "@/lib/public-errors";
 import type { ApiErrorCode } from "@/lib/types";
 
 const exactChineseMessages: Record<string, string> = {
@@ -85,23 +86,23 @@ export function apiError(
   details?: unknown,
 ) {
   const translatedMessage = translateApiMessage(message);
+  const error = sanitizePublicError({
+    code,
+    message: translatedMessage,
+    details,
+  });
 
   return NextResponse.json(
-    {
-      error: {
-        code,
-        message: translatedMessage,
-        details,
-      },
-    },
+    { error },
     { status },
   );
 }
 
 export function notImplemented(feature: string) {
+  void feature;
   return apiError(
-    "NOT_IMPLEMENTED",
-    `${feature} 功能骨架已建立；請在下一階段接上 Supabase 寫入。`,
-    501,
+    "AI_UNAVAILABLE",
+    "AI service unavailable.",
+    503,
   );
 }

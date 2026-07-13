@@ -10,6 +10,7 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "smoke": "node scripts/smoke-test.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
+    "schema:check": "node scripts/schema-snapshot.mjs",
     "verify-staging": "node scripts/verify-staging.mjs"
   },
   "dependencies": {

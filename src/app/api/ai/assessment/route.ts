@@ -1,5 +1,5 @@
 import { apiError, ok } from "@/lib/api-response";
-import { generateText, getMissingAiConfigMessage } from "@/lib/ai/provider";
+import { generateText } from "@/lib/ai/provider";
 import { getCurrentUser } from "@/lib/auth";
 import {
   assessmentPrompt,
@@ -31,16 +31,20 @@ export async function POST(request: Request) {
       developerPrompt: assessmentPrompt.developerPrompt,
       input: buildAssessmentPromptInput(body),
     });
-  } catch (error) {
+  } catch {
     return apiError(
-      "SERVER_ERROR",
-      error instanceof Error ? error.message : getMissingAiConfigMessage(),
-      500,
+      "AI_UNAVAILABLE",
+      "AI 服務暫時無法使用，請稍後再試。",
+      503,
     );
   }
 
   if (!aiResult) {
-    return apiError("NOT_IMPLEMENTED", getMissingAiConfigMessage(), 501);
+    return apiError(
+      "AI_UNAVAILABLE",
+      "AI 服務暫時無法使用，請稍後再試。",
+      503,
+    );
   }
 
   return ok({

@@ -56,16 +56,6 @@ function getHealthPayload(json) {
   return json?.data && typeof json.data === "object" ? json.data : json;
 }
 
-function normalizeMissingEnv(payload) {
-  if (Array.isArray(payload.requiredEnvMissing)) {
-    return payload.requiredEnvMissing;
-  }
-  if (Array.isArray(payload.missingRequiredEnv)) {
-    return payload.missingRequiredEnv;
-  }
-  return [];
-}
-
 async function checkHealth() {
   const { response, body, contentType } = await fetchWithTimeout("/api/health");
   if (response.status !== 200) {
@@ -95,18 +85,16 @@ async function checkHealth() {
   }
 
   const payload = getHealthPayload(json);
-  const missing = normalizeMissingEnv(payload);
-  const storageConfigured =
-    payload.storageBucketsConfigured ?? payload.storageConfigured;
-
   const requiredKeys = [
+    "environment",
     "demoMode",
     "supabaseConfigured",
     "supabasePublishableKeyConfigured",
-    "supabaseSecretKeyConfigured",
-    "aiProvider",
-    "aiConfigured",
-    "openaiConfigured",
+    "supabaseAdminConfigured",
+    "aiProviderConfigured",
+    "openaiModelConfigured",
+    "storageBucketsConfigured",
+    "requiredConfigurationMissing",
   ];
   for (const key of requiredKeys) {
     if (!(key in payload)) {
@@ -132,19 +120,17 @@ async function checkHealth() {
     if (payload.supabasePublishableKeyConfigured !== true) {
       blockers.push("Supabase publishable key is not configured");
     }
-    if (payload.supabaseSecretKeyConfigured !== true) {
-      blockers.push("Supabase secret key is not configured");
+    if (payload.aiProviderConfigured !== true) {
+      blockers.push("AI provider is not configured");
     }
-    if (payload.aiConfigured !== true) {
-      blockers.push(
-        `${payload.aiProvider || "AI provider"} is not configured`,
-      );
+    if (payload.openaiModelConfigured !== true) {
+      blockers.push("OpenAI model is not configured");
     }
-    if (storageConfigured !== true) {
+    if (payload.storageBucketsConfigured !== true) {
       blockers.push("storage buckets are not configured");
     }
-    if (missing.length > 0) {
-      blockers.push(`missing env: ${missing.join(", ")}`);
+    if (payload.requiredConfigurationMissing !== false) {
+      blockers.push("required configuration is missing");
     }
     if (blockers.length > 0) {
       return {

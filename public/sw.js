@@ -1,11 +1,7 @@
 const CACHE_PREFIX = "chengxin-health-ai";
-const STATIC_CACHE = `${CACHE_PREFIX}-static-v8`;
-const PAGE_CACHE = `${CACHE_PREFIX}-pages-v8`;
-const OFFLINE_URL = "/offline.html";
+const STATIC_CACHE = `${CACHE_PREFIX}-static-v9`;
 
-const STATIC_ASSETS = [
-  "/",
-  OFFLINE_URL,
+const PUBLIC_ASSETS = [
   "/manifest.webmanifest",
   "/icon.svg",
   "/icon-192.png",
@@ -14,24 +10,15 @@ const STATIC_ASSETS = [
   "/apple-touch-icon.png",
 ];
 
-const CACHEABLE_PAGES = [
-  "/dashboard",
-  "/appointments",
-  "/training",
-  "/nutrition",
-  "/inbody",
-  "/medications",
-];
-
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE).then(async (cache) => {
-      await Promise.allSettled(
-        STATIC_ASSETS.map((asset) =>
+    caches.open(STATIC_CACHE).then((cache) =>
+      Promise.allSettled(
+        PUBLIC_ASSETS.map((asset) =>
           cache.add(new Request(asset, { cache: "reload" })),
         ),
-      );
-    }),
+      ),
+    ),
   );
   self.skipWaiting();
 });
@@ -44,7 +31,7 @@ self.addEventListener("activate", (event) => {
         Promise.all(
           keys
             .filter((key) => key.startsWith(CACHE_PREFIX))
-            .filter((key) => key !== STATIC_CACHE && key !== PAGE_CACHE)
+            .filter((key) => key !== STATIC_CACHE)
             .map((key) => caches.delete(key)),
         ),
       )
@@ -52,93 +39,51 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "PURGE_APP_CACHE") return;
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith(CACHE_PREFIX))
+            .map((key) => caches.delete(key)),
+        ),
+      ),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-
-  if (request.method !== "GET") {
-    return;
-  }
+  if (request.method !== "GET" || request.mode === "navigate") return;
 
   const url = new URL(request.url);
-
-  if (url.origin !== self.location.origin || shouldBypassCache(url)) {
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/auth/") ||
+    url.pathname.startsWith("/_next/data/")
+  ) {
     return;
   }
 
-  if (isStaticRequest(url)) {
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    PUBLIC_ASSETS.includes(url.pathname)
+  ) {
     event.respondWith(cacheFirst(request));
-    return;
-  }
-
-  if (request.mode === "navigate") {
-    event.respondWith(networkFirstPage(request, url));
   }
 });
 
-function shouldBypassCache(url) {
-  return (
-    url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/auth/") ||
-    url.pathname.startsWith("/_next/data/") ||
-    url.pathname.includes("supabase") ||
-    url.searchParams.has("code") ||
-    url.searchParams.has("token")
-  );
-}
-
-function isStaticRequest(url) {
-  return (
-    url.pathname.startsWith("/_next/static/") ||
-    STATIC_ASSETS.includes(url.pathname)
-  );
-}
-
-function isCacheablePage(url) {
-  return CACHEABLE_PAGES.includes(url.pathname);
-}
-
 async function cacheFirst(request) {
   const cached = await caches.match(request);
-
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
 
   const response = await fetch(request);
-
   if (response.ok && response.type === "basic") {
     const cache = await caches.open(STATIC_CACHE);
-    cache.put(request, response.clone());
+    await cache.put(request, response.clone());
   }
-
   return response;
-}
-
-async function networkFirstPage(request, url) {
-  try {
-    const response = await fetch(request);
-
-    if (
-      response.ok &&
-      response.type === "basic" &&
-      isCacheablePage(url) &&
-      isHtmlResponse(response)
-    ) {
-      const cache = await caches.open(PAGE_CACHE);
-      cache.put(request, response.clone());
-    }
-
-    return response;
-  } catch {
-    const cachedPage = isCacheablePage(url)
-      ? await caches.match(request)
-      : null;
-    const offlineFallback = await caches.match(OFFLINE_URL);
-
-    return cachedPage || offlineFallback || Response.error();
-  }
-}
-
-function isHtmlResponse(response) {
-  return (response.headers.get("content-type") || "").includes("text/html");
 }

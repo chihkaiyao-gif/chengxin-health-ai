@@ -214,12 +214,19 @@ function killChild(child) {
 }
 
 assertNoRunningNextStartForWorkspace(process.cwd());
-await runCommand("production build", process.execPath, [nextBin, "build"]);
+await runCommand("production build", process.execPath, [nextBin, "build"], {
+  env: {
+    ...process.env,
+    APP_MODE: "demo",
+    NEXT_PUBLIC_DEMO_MODE: "true",
+  },
+});
 
 const port = await findAvailablePort();
 const baseUrl = `http://127.0.0.1:${port}`;
 const serverEnv = {
   ...process.env,
+  APP_MODE: "demo",
   NODE_ENV: "production",
   NEXT_PUBLIC_DEMO_MODE: "true",
   NEXT_PUBLIC_APP_URL: baseUrl,

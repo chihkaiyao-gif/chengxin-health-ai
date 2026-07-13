@@ -15,6 +15,7 @@ import {
   UserRoundCog,
 } from "lucide-react";
 import { FeedbackWidget } from "@/components/feedback-widget";
+import { SecureSignOutForm } from "@/components/secure-sign-out-form";
 
 const clinicLinks = [
   { href: "/clinic/dashboard", label: "診所首頁", icon: LayoutDashboard },
@@ -52,9 +53,12 @@ export function ClinicShell({ children }: ClinicShellProps) {
               </p>
             </div>
           </Link>
-          <Link href="/dashboard" className="btn-secondary">
-            病人端
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/dashboard" className="btn-secondary">
+              病人端
+            </Link>
+            <SecureSignOutForm />
+          </div>
         </div>
       </header>
 

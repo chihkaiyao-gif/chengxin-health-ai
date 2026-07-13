@@ -25,14 +25,17 @@ export async function POST(request: Request) {
       return apiError("UNAUTHENTICATED", "請先登入。", 401);
     }
 
-    return apiError(
-      "SERVER_ERROR",
-      typeof result.details === "string"
-        ? result.details
-        : "無法產生 AI Coach 建議，請稍後再試。",
-      500,
-      result.details,
-    );
+    return result.error === "AI_UNAVAILABLE"
+      ? apiError(
+          "AI_UNAVAILABLE",
+          "AI 服務暫時無法使用，請稍後再試。",
+          503,
+        )
+      : apiError(
+          "INTERNAL_ERROR",
+          "服務暫時無法使用，請稍後再試。",
+          500,
+        );
   }
 
   return ok(result, { status: result.provider !== "fallback" ? 201 : 202 });

@@ -598,7 +598,7 @@ test("PostgREST unique violations return a fixed duplicate alias error", async (
   };
 
   assert.equal(response.status, 409);
-  assert.equal(body.error?.code, "CONFLICT");
+  assert.equal(body.error?.code, "VALIDATION_ERROR");
   assert.equal(body.error?.message, "同一器材已有相同別名。");
   assert.equal(body.error?.details, undefined);
 });

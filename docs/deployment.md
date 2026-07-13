@@ -120,12 +120,12 @@ npm run build
 必要 staging env：
 
 ```env
+APP_MODE=staging
 NEXT_PUBLIC_APP_ENV=staging
 NEXT_PUBLIC_APP_URL=https://your-staging-domain.vercel.app
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-staging-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-staging-publishable-key
-SUPABASE_SECRET_KEY=sb_secret_your-staging-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
@@ -136,15 +136,13 @@ OPENAI_REASONING_EFFORT_FOOD=low
 OPENAI_REASONING_EFFORT_INBODY=low
 OPENAI_REASONING_EFFORT_COACH=medium
 OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
-ANTHROPIC_API_KEY=
-GOOGLE_API_KEY=
-DEEPSEEK_API_KEY=
 ```
 
 選用 env：
 
 ```env
 NEXT_PUBLIC_APP_VERSION=0.1.0
+SUPABASE_SECRET_KEY=sb_secret_optional-ai-cache-key
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 EMAIL_PROVIDER=
@@ -178,15 +176,13 @@ https://your-staging-domain.vercel.app/api/health
 - `demoMode:false`
 - `supabaseConfigured:true`
 - `supabasePublishableKeyConfigured:true`
-- `supabaseSecretKeyConfigured:true`
-- `aiProvider:"openai"` or another supported provider
-- `aiConfigured:true`
-- `openaiConfigured:true` when `AI_PROVIDER=openai`
-- `openaiProviderConfigured:true`
+- `environment:"staging"`
+- `supabaseAdminConfigured:true` only when the optional admin capability is enabled
+- `aiProviderConfigured:true`
 - `openaiModelConfigured:true`
 - `openaiFallbackConfigured:true`
 - `storageBucketsConfigured:true`
-- `requiredEnvMissing:[]`
+- `requiredConfigurationMissing:false`
 - `status:"ok"`
 
 ### 7. Staging Rollback
@@ -206,25 +202,24 @@ Use local demo when presenting the UI without a real Supabase project.
 Required:
 
 ```env
+APP_MODE=demo
 NEXT_PUBLIC_APP_ENV=local
 NEXT_PUBLIC_APP_URL=http://localhost:3001
 NEXT_PUBLIC_DEMO_MODE=true
+AI_PROVIDER=demo
 ```
 
-Optional:
+Optional OpenAI testing in demo mode:
 
 ```env
 AI_PROVIDER=openai
-OPENAI_API_KEY=
+OPENAI_API_KEY=sk-your-test-key
 OPENAI_MODEL=gpt-5.6-terra
 OPENAI_FALLBACK_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT_FOOD=low
 OPENAI_REASONING_EFFORT_INBODY=low
 OPENAI_REASONING_EFFORT_COACH=medium
 OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
-ANTHROPIC_API_KEY=
-GOOGLE_API_KEY=
-DEEPSEEK_API_KEY=
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 ```
@@ -234,7 +229,7 @@ Behavior:
 - Demo fallback is allowed.
 - APIs may return `persisted:false`.
 - Testers should see the Demo Mode banner.
-- Health records and images are not formally persisted unless Supabase is configured.
+- All write APIs return `persisted:false`, even if Supabase credentials are present.
 
 ### Staging
 
@@ -243,12 +238,12 @@ Use staging for clinic team QA and investor demos with realistic data isolation.
 Required:
 
 ```env
+APP_MODE=staging
 NEXT_PUBLIC_APP_ENV=staging
 NEXT_PUBLIC_APP_URL=https://staging.chengxin.health
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-staging-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-staging-publishable-key
-SUPABASE_SECRET_KEY=sb_secret_your-staging-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
@@ -259,14 +254,12 @@ OPENAI_REASONING_EFFORT_FOOD=low
 OPENAI_REASONING_EFFORT_INBODY=low
 OPENAI_REASONING_EFFORT_COACH=medium
 OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
-ANTHROPIC_API_KEY=
-GOOGLE_API_KEY=
-DEEPSEEK_API_KEY=
 ```
 
 Optional:
 
 ```env
+SUPABASE_SECRET_KEY=sb_secret_optional-ai-cache-key
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 EMAIL_PROVIDER=
@@ -292,12 +285,12 @@ Use production only after staging QA passes.
 Required:
 
 ```env
+APP_MODE=production
 NEXT_PUBLIC_APP_ENV=production
 NEXT_PUBLIC_APP_URL=https://app.chengxin.health
 NEXT_PUBLIC_DEMO_MODE=false
 NEXT_PUBLIC_SUPABASE_URL=https://your-production-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-production-publishable-key
-SUPABASE_SECRET_KEY=sb_secret_your-production-secret-key
 SUPABASE_STORAGE_MEAL_PHOTOS_BUCKET=meal-photos
 SUPABASE_STORAGE_INBODY_SCANS_BUCKET=inbody-scans
 AI_PROVIDER=openai
@@ -308,14 +301,12 @@ OPENAI_REASONING_EFFORT_FOOD=low
 OPENAI_REASONING_EFFORT_INBODY=low
 OPENAI_REASONING_EFFORT_COACH=medium
 OPENAI_REASONING_EFFORT_VISIT_REPORT=medium
-ANTHROPIC_API_KEY=
-GOOGLE_API_KEY=
-DEEPSEEK_API_KEY=
 ```
 
 Recommended:
 
 ```env
+SUPABASE_SECRET_KEY=sb_secret_optional-ai-cache-key
 SENTRY_DSN=
 LOG_LEVEL=info
 LINE_CHANNEL_ACCESS_TOKEN=
@@ -342,11 +333,12 @@ Behavior:
 
 ## Demo Mode Switch
 
-The app follows this rule:
+The server follows this rule:
 
-- `NEXT_PUBLIC_DEMO_MODE=true`: demo fallback is allowed when Supabase keys are missing.
-- `NEXT_PUBLIC_DEMO_MODE=false`: Supabase is required.
-- Any staging or production environment with missing Supabase or required OpenAI model config should show an explicit configuration error and must not silently return demo data.
+- `APP_MODE=demo`: every write path is forced non-persistent, even if Supabase credentials exist.
+- `APP_MODE=staging` or `APP_MODE=production`: Supabase and OpenAI configuration must be present; missing configuration fails explicitly.
+- `NEXT_PUBLIC_DEMO_MODE` remains only a legacy UI/banner compatibility flag. Explicit deployment mode always wins.
+- Non-demo environments support only `AI_PROVIDER=openai`; unimplemented providers fail safely.
 
 Use `/api/health` to verify the active mode:
 
@@ -354,21 +346,17 @@ Use `/api/health` to verify the active mode:
 {
   "data": {
     "status": "ok",
+    "environment": "staging",
     "demoMode": false,
     "supabaseConfigured": true,
     "supabasePublishableKeyConfigured": true,
-    "supabaseSecretKeyConfigured": true,
-    "aiProvider": "openai",
-    "aiConfigured": true,
-    "openaiConfigured": true,
-    "openaiProvider": "openai",
-    "openaiProviderConfigured": true,
+    "supabaseAdminConfigured": false,
+    "aiProviderConfigured": true,
     "openaiModelConfigured": true,
     "openaiFallbackConfigured": true,
     "storageBucketsConfigured": true,
-    "requiredEnvMissing": [],
-    "appVersion": "0.1.0",
-    "commitSha": "optional"
+    "requiredConfigurationMissing": false,
+    "appVersion": "0.1.0"
   }
 }
 ```
@@ -531,27 +519,25 @@ GET /api/health
 Fields:
 
 - `status`: `ok` or `misconfigured`
-- `demoMode`: whether demo fallback is enabled
+- `environment`: server-authoritative app mode
+- `demoMode`: whether writes are forced non-persistent
 - `supabaseConfigured`: URL and publishable key present
 - `supabasePublishableKeyConfigured`: publishable key present
-- `supabaseSecretKeyConfigured`: secret key present
-- `aiProvider`: active AI Gateway provider, defaulting to `openai`
-- `aiConfigured`: active provider key is present
-- `openaiConfigured`: `OPENAI_API_KEY` present
-- `openaiProviderConfigured`: `OPENAI_API_KEY` present
+- `supabaseAdminConfigured`: optional admin capability available
+- `aiProviderConfigured`: allowed provider and key are configured
 - `openaiModelConfigured`: `OPENAI_MODEL` present
 - `openaiFallbackConfigured`: `OPENAI_FALLBACK_MODEL` present
 - `storageBucketsConfigured`: required storage bucket names available
-- `storageBuckets`: effective bucket names
+- `storageConfigured`: storage capability configured
 - `appVersion`: app version
-- `commitSha`: optional Vercel commit SHA
-- `requiredEnvMissing`: launch-blocking missing variables
+- `requiredConfigurationMissing`: whether launch-blocking configuration is missing
 
 Use this endpoint for Vercel post-deploy checks and staging smoke tests.
 
 ## Production Safety Notes
 
-- Service worker must not cache sensitive health API responses.
+- Service worker must not cache sensitive API responses or authenticated navigation HTML.
+- Logout must purge all app caches so a shared browser cannot show the previous user's private page.
 - Do not store sensitive health records in localStorage.
 - All images and health records must use Supabase Storage / Postgres permissions.
 - AI output is for records, reminders, trend analysis, and visit communication support only.

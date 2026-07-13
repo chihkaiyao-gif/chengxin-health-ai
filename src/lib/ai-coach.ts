@@ -1,7 +1,6 @@
 import { getLatestAssessmentResultForCurrentUser } from "@/lib/assessment-data";
 import {
   generateCoachInsight,
-  getMissingAiConfigMessage,
   type AiProviderName,
 } from "@/lib/ai/provider";
 import { getCurrentUser } from "@/lib/auth";
@@ -442,7 +441,6 @@ async function createAiInsight(
       insight: buildFallbackInsight(source, "demo-user", {
         provider: "fallback",
         reason: "ai_gateway_failed_or_invalid_output",
-        message: error instanceof Error ? error.message : "unknown_error",
       }),
     };
   }
@@ -510,7 +508,7 @@ export async function getTodayCoachInsightForCurrentUser(): Promise<AiCoachInsig
 
 export async function generateCoachInsightForCurrentUser(
   input: CoachInsightGenerateRequestInput,
-): Promise<AiCoachInsightResponse | { error: "UNAUTHENTICATED" | "SERVER_ERROR"; details?: unknown }> {
+): Promise<AiCoachInsightResponse | { error: "UNAUTHENTICATED" | "AI_UNAVAILABLE" | "SERVER_ERROR" }> {
   void input;
 
   const source = await buildCurrentCoachSource();
@@ -520,10 +518,9 @@ export async function generateCoachInsightForCurrentUser(
 
     try {
       result = await createAiInsight(source);
-    } catch (error) {
+    } catch {
       return {
-        error: "SERVER_ERROR",
-        details: error instanceof Error ? error.message : getMissingAiConfigMessage(),
+        error: "AI_UNAVAILABLE",
       };
     }
 
@@ -544,10 +541,9 @@ export async function generateCoachInsightForCurrentUser(
 
   try {
     result = await createAiInsight(source);
-  } catch (error) {
+  } catch {
     return {
-      error: "SERVER_ERROR",
-      details: error instanceof Error ? error.message : getMissingAiConfigMessage(),
+      error: "AI_UNAVAILABLE",
     };
   }
 
@@ -560,7 +556,7 @@ export async function generateCoachInsightForCurrentUser(
     .single<AiCoachInsightRow>();
 
   if (error || !data) {
-    return { error: "SERVER_ERROR", details: error?.message };
+    return { error: "SERVER_ERROR" };
   }
 
   return {

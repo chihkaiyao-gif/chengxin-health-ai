@@ -1,7 +1,6 @@
 import { apiError, ok } from "@/lib/api-response";
 import {
   generateVisitReport,
-  getMissingAiConfigMessage,
   type AiProviderName,
 } from "@/lib/ai/provider";
 import { logAuditEvent } from "@/lib/audit";
@@ -62,12 +61,12 @@ export async function POST(request: Request) {
       summary = aiResult.data;
       aiProvider = aiResult.provider;
     }
-  } catch (error) {
+  } catch {
     if (!isDemoMode()) {
       return apiError(
-        "SERVER_ERROR",
-        error instanceof Error ? error.message : getMissingAiConfigMessage(),
-        500,
+        "AI_UNAVAILABLE",
+        "AI 服務暫時無法使用，請稍後再試。",
+        503,
       );
     }
 
