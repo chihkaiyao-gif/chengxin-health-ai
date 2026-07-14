@@ -80,13 +80,3 @@ export async function signUpAction(formData: FormData) {
 
   redirect(inviteCode ? `/assessment?inviteCode=${encodeURIComponent(inviteCode)}` : "/assessment");
 }
-
-export async function signOutAction() {
-  if (!hasSupabaseConfig()) {
-    redirect("/");
-  }
-
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/");
-}

@@ -328,16 +328,26 @@ test("service worker only caches public immutable assets and supports logout pur
   assert.doesNotMatch(sw, /"\/dashboard"|"\/nutrition"|"\/inbody"/);
 });
 
-test("logout purges app caches before invoking the server sign-out action", () => {
+test("logout uses browser auth and the current Supabase cookie adapter", () => {
   const form = readFileSync(
     new URL("../src/components/secure-sign-out-form.tsx", import.meta.url),
     "utf8",
   );
-  const actions = readFileSync(
-    new URL("../src/app/auth/actions.ts", import.meta.url),
+  const server = readFileSync(
+    new URL("../src/lib/supabase/server.ts", import.meta.url),
+    "utf8",
+  );
+  const middleware = readFileSync(
+    new URL("../middleware.ts", import.meta.url),
     "utf8",
   );
 
-  assert.ok(form.indexOf("await purgeAppCaches()") < form.indexOf("await signOutAction()"));
-  assert.match(actions, /await supabase\.auth\.signOut\(\)/);
+  assert.match(form, /performSecureSignOut/);
+  assert.match(form, /hasBrowserSupabaseConfig/);
+  assert.match(form, /supabase\.auth\.signOut\(\{ scope \}\)/);
+  assert.doesNotMatch(form, /signOutAction/);
+  assert.match(server, /getAll\(\)/);
+  assert.match(server, /setAll\(cookiesToSet\)/);
+  assert.match(middleware, /getAll\(\)/);
+  assert.match(middleware, /setAll\(cookiesToSet, headers\)/);
 });

@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { getOpenAiEnvStatus } from "@/lib/ai/openai-model-config";
 import { getAppMode, isDemoModeEnv } from "@/lib/app-mode";
+import { applySupabaseCookies } from "@/lib/supabase/cookie-adapter";
 
 const missingSupabaseConfigMessage =
   "Supabase server configuration is unavailable.";
@@ -155,14 +156,15 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          cookieStore.set({ name, value: "", ...options });
+        setAll(cookiesToSet) {
+          try {
+            applySupabaseCookies(cookieStore, cookiesToSet);
+          } catch {
+            // Server Components cannot write cookies. Middleware refreshes them.
+          }
         },
       },
     },
