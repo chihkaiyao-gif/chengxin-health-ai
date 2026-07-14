@@ -2,6 +2,7 @@
 
 import { LogOut } from "lucide-react";
 import { useRef, useState } from "react";
+import { clearServerSessionAction } from "@/app/auth/actions";
 import { purgeAppCaches } from "@/lib/pwa-cache";
 import { performSecureSignOut } from "@/lib/secure-sign-out";
 import {
@@ -29,6 +30,7 @@ export function SecureSignOutForm() {
 
     await performSecureSignOut({
       signOut: async (scope) => supabase.auth.signOut({ scope }),
+      clearServerSession: clearServerSessionAction,
       purgeCaches: purgeAppCaches,
       replaceLocation: (path) => window.location.replace(path),
     });

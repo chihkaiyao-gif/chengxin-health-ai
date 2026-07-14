@@ -6,6 +6,7 @@ type SignOutResult = {
 
 type SecureSignOutDependencies = {
   signOut(scope: SignOutScope): Promise<SignOutResult>;
+  clearServerSession(): Promise<{ ok: boolean }>;
   purgeCaches(): Promise<void>;
   replaceLocation(path: string): void;
 };
@@ -16,10 +17,12 @@ const signOutFailurePath = `/login?message=${encodeURIComponent(
 
 export async function performSecureSignOut({
   signOut,
+  clearServerSession,
   purgeCaches,
   replaceLocation,
 }: SecureSignOutDependencies) {
   let globalSignOutFailed = false;
+  let serverSessionCleanupFailed = false;
 
   try {
     const { error } = await signOut("global");
@@ -37,12 +40,21 @@ export async function performSecureSignOut({
   }
 
   try {
+    const result = await clearServerSession();
+    serverSessionCleanupFailed = !result.ok;
+  } catch {
+    serverSessionCleanupFailed = true;
+  }
+
+  try {
     await purgeCaches();
   } catch {
     // Cache cleanup is best effort; authentication cleanup remains authoritative.
   }
 
-  replaceLocation(globalSignOutFailed ? signOutFailurePath : "/");
+  const signOutFailed = globalSignOutFailed || serverSessionCleanupFailed;
 
-  return { ok: !globalSignOutFailed };
+  replaceLocation(signOutFailed ? signOutFailurePath : "/");
+
+  return { ok: !signOutFailed };
 }

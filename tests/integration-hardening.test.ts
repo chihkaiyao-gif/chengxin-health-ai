@@ -341,11 +341,17 @@ test("logout uses browser auth and the current Supabase cookie adapter", () => {
     new URL("../middleware.ts", import.meta.url),
     "utf8",
   );
+  const authActions = readFileSync(
+    new URL("../src/app/auth/actions.ts", import.meta.url),
+    "utf8",
+  );
 
   assert.match(form, /performSecureSignOut/);
   assert.match(form, /hasBrowserSupabaseConfig/);
   assert.match(form, /supabase\.auth\.signOut\(\{ scope \}\)/);
-  assert.doesNotMatch(form, /signOutAction/);
+  assert.match(form, /clearServerSessionAction/);
+  assert.match(authActions, /export async function clearServerSessionAction/);
+  assert.match(authActions, /supabase\.auth\.signOut\(\{ scope: "local" \}\)/);
   assert.match(server, /getAll\(\)/);
   assert.match(server, /setAll\(cookiesToSet\)/);
   assert.match(middleware, /getAll\(\)/);

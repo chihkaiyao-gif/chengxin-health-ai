@@ -75,6 +75,10 @@ test("secure browser sign-out clears caches and redirects home after global sign
       events.push(`sign-out:${scope}`);
       return { error: null };
     },
+    clearServerSession: async () => {
+      events.push("clear-server-session");
+      return { ok: true };
+    },
     purgeCaches: async () => {
       events.push("purge-caches");
     },
@@ -83,7 +87,12 @@ test("secure browser sign-out clears caches and redirects home after global sign
     },
   });
 
-  assert.deepEqual(events, ["sign-out:global", "purge-caches", "replace:/"]);
+  assert.deepEqual(events, [
+    "sign-out:global",
+    "clear-server-session",
+    "purge-caches",
+    "replace:/",
+  ]);
   assert.deepEqual(result, { ok: true });
 });
 
@@ -97,6 +106,10 @@ test("secure browser sign-out falls back locally without exposing provider error
         ? { error: new Error("private Supabase token and internal endpoint") }
         : { error: null };
     },
+    clearServerSession: async () => {
+      events.push("clear-server-session");
+      return { ok: true };
+    },
     purgeCaches: async () => {
       events.push("purge-caches");
     },
@@ -109,6 +122,37 @@ test("secure browser sign-out falls back locally without exposing provider error
   assert.deepEqual(events, [
     "sign-out:global",
     "sign-out:local",
+    "clear-server-session",
+    "purge-caches",
+    "replace:/login?message=%E7%99%BB%E5%87%BA%E5%A4%B1%E6%95%97%EF%BC%8C%E8%AB%8B%E9%87%8D%E6%96%B0%E7%99%BB%E5%85%A5%E3%80%82",
+  ]);
+  assert.deepEqual(result, { ok: false });
+});
+
+test("secure browser sign-out fails closed when SSR session cleanup fails", async () => {
+  const events: string[] = [];
+
+  const result = await performSecureSignOut({
+    signOut: async (scope) => {
+      events.push(`sign-out:${scope}`);
+      return { error: null };
+    },
+    clearServerSession: async () => {
+      events.push("clear-server-session");
+      return { ok: false };
+    },
+    purgeCaches: async () => {
+      events.push("purge-caches");
+    },
+    replaceLocation: (path) => {
+      events.push(`replace:${path}`);
+      assert.doesNotMatch(path, /Supabase|cookie|session|token/i);
+    },
+  });
+
+  assert.deepEqual(events, [
+    "sign-out:global",
+    "clear-server-session",
     "purge-caches",
     "replace:/login?message=%E7%99%BB%E5%87%BA%E5%A4%B1%E6%95%97%EF%BC%8C%E8%AB%8B%E9%87%8D%E6%96%B0%E7%99%BB%E5%85%A5%E3%80%82",
   ]);

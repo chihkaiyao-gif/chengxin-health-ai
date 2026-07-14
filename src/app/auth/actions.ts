@@ -1,11 +1,27 @@
 "use server";
 
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { sanitizeRedirectTo } from "@/lib/auth-redirect";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
 
 function encodedMessage(path: string, message: string) {
   return `${path}?message=${encodeURIComponent(message)}`;
+}
+
+export async function clearServerSessionAction() {
+  try {
+    if (!hasSupabaseConfig()) {
+      return { ok: true };
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+
+    return { ok: error === null || isAuthSessionMissingError(error) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function signInAction(formData: FormData) {
